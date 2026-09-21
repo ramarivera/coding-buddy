@@ -14,9 +14,22 @@ import {
 import { spawn } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { pathToFileURL } from "node:url";
 import { FileBuddyStorage } from "./file-storage.ts";
 import type { BuddyBones } from "../../core/engine.ts";
 import type { Companion } from "../../core/model.ts";
+/**
+ * Import specifier for a module the generated worker scripts below pull in.
+ *
+ * The workers are built as source text, so a bare path is pasted straight into
+ * a string literal. On Windows every backslash in C:\Users\... is then an
+ * escape sequence, and bun resolves what survives — C:Usersile-storage.ts —
+ * instead of the file. A file:// URL has no backslashes on any platform.
+ */
+function moduleSpecifier(relativePath: string): string {
+  return pathToFileURL(join(import.meta.dir, relativePath)).href;
+}
+
 const temporaryDirectories: string[] = [];
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) {
@@ -34,7 +47,7 @@ describe("cross-process locking", () => {
     const storage = new FileBuddyStorage(stateDir);
 
     const workerPath = join(parent, "worker.ts");
-    const workerCode = `import { FileBuddyStorage } from "${join(import.meta.dir, "file-storage.ts")}";\n` +
+    const workerCode = `import { FileBuddyStorage } from "${moduleSpecifier("file-storage.ts")}";\n` +
       "const stateDir = process.argv[2];\n" +
       "const count = Number(process.argv[3]);\n" +
       "const storage = new FileBuddyStorage(stateDir);\n" +
@@ -72,7 +85,7 @@ describe("cross-process locking", () => {
     mkdirSync(ompRoot, { recursive: true });
 
     const workerPath = join(parent, "worker.ts");
-    const workerCode = `import { FileBuddyStorage } from "${join(import.meta.dir, "file-storage.ts")}";\n` +
+    const workerCode = `import { FileBuddyStorage } from "${moduleSpecifier("file-storage.ts")}";\n` +
       "const stateDir = process.argv[2];\n" +
       "const count = Number(process.argv[3]);\n" +
       "const storage = new FileBuddyStorage(stateDir);\n" +
@@ -133,10 +146,10 @@ describe("cross-process locking", () => {
     const holderPath = join(parent, "fresh-lock-holder.ts");
     const holderCode =
       `import { existsSync, mkdirSync, rmdirSync, watch, writeFileSync } from "node:fs";\n` +
-      `const lockDir = "${lockDir}";\n` +
-      `const readyFile = "${readyFile}";\n` +
-      `const releaseFile = "${releaseFile}";\n` +
-      `const parentDir = "${parent}";\n` +
+      `const lockDir = ${JSON.stringify(lockDir)};\n` +
+      `const readyFile = ${JSON.stringify(readyFile)};\n` +
+      `const releaseFile = ${JSON.stringify(releaseFile)};\n` +
+      `const parentDir = ${JSON.stringify(parent)};\n` +
       `mkdirSync(lockDir, { recursive: true });\n` +
       `let watcher;\n` +
       `function releaseLock() {\n` +
@@ -152,15 +165,15 @@ describe("cross-process locking", () => {
     writeFileSync(holderPath, holderCode, "utf8");
 
     const incrementerPath = join(parent, "fresh-lock-incrementer.ts");
-    const fileStoragePath = join(import.meta.dir, "file-storage.ts");
+    const fileStoragePath = moduleSpecifier("file-storage.ts");
     const startedFile = join(parent, "started");
     const doneFile = join(parent, "done.json");
     const incrementerCode =
       `import { FileBuddyStorage } from "${fileStoragePath}";\n` +
       `import { writeFileSync } from "node:fs";\n` +
-      `const stateDir = "${stateDir}";\n` +
-      `const startedFile = "${startedFile}";\n` +
-      `const doneFile = "${doneFile}";\n` +
+      `const stateDir = ${JSON.stringify(stateDir)};\n` +
+      `const startedFile = ${JSON.stringify(startedFile)};\n` +
+      `const doneFile = ${JSON.stringify(doneFile)};\n` +
       `writeFileSync(startedFile, "");\n` +
       `new FileBuddyStorage(stateDir).increment("commands_run");\n` +
       `writeFileSync(doneFile, JSON.stringify({ commands_run: new FileBuddyStorage(stateDir).loadCounters().commands_run }));\n`;
@@ -214,9 +227,9 @@ describe("cross-process locking", () => {
     mkdirSync(stateDir, { recursive: true });
     const storage = new FileBuddyStorage(stateDir);
 
-    const fileStoragePath = join(import.meta.dir, "file-storage.ts");
-    const modelPath = join(import.meta.dir, "../../core/model.ts");
-    const enginePath = join(import.meta.dir, "../../core/engine.ts");
+    const fileStoragePath = moduleSpecifier("file-storage.ts");
+    const modelPath = moduleSpecifier("../../core/model.ts");
+    const enginePath = moduleSpecifier("../../core/engine.ts");
 
     const workerPath = join(parent, "slot-worker.ts");
     const workerCode =
@@ -269,9 +282,9 @@ describe("cross-process locking", () => {
     mkdirSync(stateDir, { recursive: true });
     const storage = new FileBuddyStorage(stateDir);
 
-    const fileStoragePath = join(import.meta.dir, "file-storage.ts");
-    const modelPath = join(import.meta.dir, "../../core/model.ts");
-    const enginePath = join(import.meta.dir, "../../core/engine.ts");
+    const fileStoragePath = moduleSpecifier("file-storage.ts");
+    const modelPath = moduleSpecifier("../../core/model.ts");
+    const enginePath = moduleSpecifier("../../core/engine.ts");
 
     const workerPath = join(parent, "save-active-worker.ts");
     const workerCode =
@@ -318,7 +331,7 @@ describe("cross-process locking", () => {
     const stateDir = join(parent, "state");
     mkdirSync(stateDir, { recursive: true });
 
-    const fileStoragePath = join(import.meta.dir, "file-storage.ts");
+    const fileStoragePath = moduleSpecifier("file-storage.ts");
     const workerPath = join(parent, "identity-worker.ts");
     const workerCode =
       `import { FileBuddyStorage } from "${fileStoragePath}";\n` +
@@ -363,7 +376,7 @@ describe("cross-process locking", () => {
     mkdirSync(stateDir, { recursive: true });
 
     const workerPath = join(parent, "cleanup-worker.ts");
-    const workerCode = `import { FileBuddyStorage } from "${join(import.meta.dir, "file-storage.ts")}";\n` +
+    const workerCode = `import { FileBuddyStorage } from "${moduleSpecifier("file-storage.ts")}";\n` +
       "const stateDir = process.argv[2];\n" +
       "const count = Number(process.argv[3]);\n" +
       "const storage = new FileBuddyStorage(stateDir);\n" +
@@ -401,9 +414,9 @@ describe("cross-process locking", () => {
     const stateDir = join(parent, "state");
     mkdirSync(stateDir, { recursive: true });
     const storage = new FileBuddyStorage(stateDir);
-    const fileStoragePath = join(import.meta.dir, "file-storage.ts");
-    const enginePath = join(import.meta.dir, "../../core/engine.ts");
-    const modelPath = join(import.meta.dir, "../../core/model.ts");
+    const fileStoragePath = moduleSpecifier("file-storage.ts");
+    const enginePath = moduleSpecifier("../../core/engine.ts");
+    const modelPath = moduleSpecifier("../../core/model.ts");
 
     const workerPath = join(parent, "ensure-companion-worker.ts");
     const workerCode =
@@ -456,7 +469,7 @@ describe("cross-process locking", () => {
     const stateDir = join(parent, "state");
     mkdirSync(stateDir, { recursive: true });
     const storage = new FileBuddyStorage(stateDir);
-    const fileStoragePath = join(import.meta.dir, "file-storage.ts");
+    const fileStoragePath = moduleSpecifier("file-storage.ts");
 
     const powerUser = ACHIEVEMENTS.find((a) => a.id === "power_user");
     expect(powerUser).toBeDefined();

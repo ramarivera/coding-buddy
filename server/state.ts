@@ -634,6 +634,7 @@ const TRANSIENT_PREFIXES = [
   "reaction.",
   ".last_reaction.",
   ".last_comment.",
+  ".last_stop_hook.",
   ".substatus.",
 ];
 

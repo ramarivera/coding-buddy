@@ -66,6 +66,7 @@ describe("cleanupPluginState", () => {
     writeFileSync(join(stateDir, "reaction.default.json"), "{}");
     writeFileSync(join(stateDir, ".last_reaction.pane-1"), "0");
     writeFileSync(join(stateDir, ".last_comment.default"), "0");
+    writeFileSync(join(stateDir, ".last_stop_hook.default"), "0");
     writeFileSync(join(stateDir, "popup-stop.42"), "");
     writeFileSync(join(stateDir, "popup-reopen-pid.42"), "99999");
     writeFileSync(join(stateDir, "popup-env.42"), "");
@@ -77,7 +78,7 @@ describe("cleanupPluginState", () => {
 
     const result = cleanupPluginState(settingsPath, stateDir);
 
-    expect(result.transientFilesRemoved).toBe(9);
+    expect(result.transientFilesRemoved).toBe(10);
     const remaining = readdirSync(stateDir).sort();
     expect(remaining).toEqual(["config.json", "menagerie.json", "status.json"]);
   });

@@ -16,6 +16,7 @@ import { tmpdir } from "os";
 import {
   buddyStateDir,
   buddyAppDir,
+  findGitBash,
   claudeConfigDir,
   claudeSettingsPath,
   claudeSkillDir,
@@ -53,8 +54,10 @@ describe("claudeSettingsPath / claudeSkillDir", () => {
 
   test("puts settings.json inside the active config dir", () => {
     process.env.CLAUDE_CONFIG_DIR = "/tmp/profile-a";
-    expect(claudeSettingsPath()).toBe("/tmp/profile-a/settings.json");
-    expect(claudeSkillDir("buddy")).toBe("/tmp/profile-a/skills/buddy");
+    // join(), not a "/"-spelled literal: the resolvers build paths with the
+    // platform separator, so a literal only matches on POSIX.
+    expect(claudeSettingsPath()).toBe(join("/tmp/profile-a", "settings.json"));
+    expect(claudeSkillDir("buddy")).toBe(join("/tmp/profile-a", "skills", "buddy"));
   });
 
   test("falls back to ~/.claude when CLAUDE_CONFIG_DIR is unset", () => {
@@ -102,7 +105,7 @@ describe("buddyStateDir", () => {
 
   test("CLAUDE_CONFIG_DIR puts state inside the profile dir", () => {
     process.env.CLAUDE_CONFIG_DIR = "/tmp/profile";
-    expect(buddyStateDir()).toBe("/tmp/profile/buddy-state");
+    expect(buddyStateDir()).toBe(join("/tmp/profile", "buddy-state"));
   });
 
   test("default is ~/.claude-buddy when CLAUDE_CONFIG_DIR is unset", () => {
@@ -116,6 +119,34 @@ describe("buddyAppDir", () => {
 
   test("places the stable runtime copy below the profile state dir", () => {
     process.env.CLAUDE_CONFIG_DIR = "/tmp/profile";
-    expect(buddyAppDir()).toBe("/tmp/profile/buddy-state/app");
+    expect(buddyAppDir()).toBe(join("/tmp/profile", "buddy-state", "app"));
+  });
+});
+
+/**
+ * Environment and the existence check are injected, so these run the same on
+ * Linux CI as on Windows.
+ */
+describe("findGitBash", () => {
+  const programFiles = String.raw`C:\Program Files`;
+  const gitBash = join(programFiles, "Git", "bin", "bash.exe");
+
+  test("finds the default Git for Windows install", () => {
+    expect(findGitBash({ ProgramFiles: programFiles }, (p) => p === gitBash)).toBe(gitBash);
+  });
+
+  test("CLAUDE_CODE_GIT_BASH_PATH wins, since Claude Code honours it too", () => {
+    const custom = String.raw`D:\tools\git\bin\bash.exe`;
+    expect(findGitBash({ CLAUDE_CODE_GIT_BASH_PATH: custom, ProgramFiles: programFiles }, () => true)).toBe(custom);
+  });
+
+  test("finds a per-user install under LOCALAPPDATA", () => {
+    const local = String.raw`C:\Users\dev\AppData\Local`;
+    const perUser = join(local, "Programs", "Git", "bin", "bash.exe");
+    expect(findGitBash({ LOCALAPPDATA: local }, (p) => p === perUser)).toBe(perUser);
+  });
+
+  test("returns undefined when nothing is installed", () => {
+    expect(findGitBash({ ProgramFiles: programFiles }, () => false)).toBeUndefined();
   });
 });

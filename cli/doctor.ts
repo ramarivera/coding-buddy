@@ -14,6 +14,7 @@ import { join, resolve, dirname } from "path";
 import {
   buddyStateDir,
   claudeConfigDir,
+  findGitBash,
   claudeSettingsPath,
   claudeSkillDir,
   claudeUserConfigPath,
@@ -80,6 +81,10 @@ row("OS", tryExec("uname -srm"));
 row("Hostname", tryExec("uname -n"));
 row("User shell", process.env.SHELL ?? "(unset)");
 row("Bash version", tryExec("bash --version | head -1"));
+if (process.platform === "win32") {
+  // What Claude Code runs hooks and the status line through; without it, PowerShell.
+  row("Git Bash (hooks)", findGitBash() ?? "(not found — hooks and status line cannot run)");
+}
 row("Bun version", tryExec("bun --version"));
 row("Node version", tryExec("node --version", "(not installed)"));
 row("jq version", tryExec("jq --version", "(not installed)"));

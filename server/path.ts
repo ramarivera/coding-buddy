@@ -9,6 +9,7 @@
 //
 // The shell counterpart of (2) lives in scripts/paths.sh and MUST stay in sync.
 
+import { existsSync } from "fs";
 import { join } from "path";
 import { homedir } from "os";
 import { sharedStateDir } from "../core/identity.ts";
@@ -27,6 +28,28 @@ import { sharedStateDir } from "../core/identity.ts";
  */
 export function toUnixPath(p: string): string {
   return p.replace(/\\/g, "/");
+}
+
+/**
+ * Locate the Git Bash that Claude Code will use on Windows, or undefined.
+ *
+ * Claude Code runs hook and status line commands through Git Bash there, and
+ * falls back to PowerShell when it cannot find one — where none of buddy's
+ * `.sh` hooks or its status line can run. CLAUDE_CODE_GIT_BASH_PATH is
+ * Claude Code's own override, so it is checked first; then the locations
+ * Git for Windows installs to. A miss here only means a warning at install.
+ */
+export function findGitBash(
+  env: Record<string, string | undefined> = process.env,
+  exists: (path: string) => boolean = existsSync,
+): string | undefined {
+  const candidates = [
+    env.CLAUDE_CODE_GIT_BASH_PATH,
+    join(env.ProgramFiles ?? "C:\\Program Files", "Git", "bin", "bash.exe"),
+    join(env["ProgramFiles(x86)"] ?? "C:\\Program Files (x86)", "Git", "bin", "bash.exe"),
+    env.LOCALAPPDATA ? join(env.LOCALAPPDATA, "Programs", "Git", "bin", "bash.exe") : undefined,
+  ];
+  return candidates.find((candidate): candidate is string => Boolean(candidate) && exists(candidate!));
 }
 
 // ─── (2) Claude config / state path resolvers ───────────────────────────────

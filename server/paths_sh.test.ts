@@ -13,6 +13,23 @@ import { join, resolve } from "path";
 
 const PATHS_SH = resolve(import.meta.dir, "..", "scripts", "paths.sh");
 
+/**
+ * One notation for both sides of the comparison.
+ *
+ * `paths.sh` answers in the notation its bash uses. On Linux and macOS that is
+ * already what `join()` produces. On Windows, Git Bash says
+ * `/c/Users/dev/.claude` where Node says `C:\Users\dev\.claude` — the same
+ * directory, so compare them in the shell's notation rather than asserting
+ * that Windows is Linux. Identity on POSIX, where a backslash is a legal
+ * character in a filename and must survive untouched.
+ */
+function posixPath(path: string, platform: string = process.platform): string {
+  if (platform !== "win32") return path;
+  const slashed = path.replace(/\\/g, "/");
+  const drive = slashed.match(/^([A-Za-z]):\//);
+  return drive ? `/${drive[1].toLowerCase()}/${slashed.slice(3)}` : slashed;
+}
+
 type Env = Record<string, string | null>;
 
 /** Run `source paths.sh` in bash under the given env overrides and
@@ -41,7 +58,7 @@ printf 'BUDDY_SID=%s\\n' "$BUDDY_SID"`;
   const parsed: Record<string, string> = {};
   for (const line of result.stdout.split("\n").filter(Boolean)) {
     const idx = line.indexOf("=");
-    parsed[line.slice(0, idx)] = line.slice(idx + 1);
+    parsed[line.slice(0, idx)] = posixPath(line.slice(idx + 1));
   }
   return parsed;
 }
@@ -50,19 +67,19 @@ describe("scripts/paths.sh (CLAUDE_CONFIG_DIR unset)", () => {
   const env = sourcePaths({ CLAUDE_CONFIG_DIR: null });
 
   test("CLAUDE_CFG_DIR defaults to $HOME/.claude", () => {
-    expect(env.CLAUDE_CFG_DIR).toBe(join(homedir(), ".claude"));
+    expect(env.CLAUDE_CFG_DIR).toBe(posixPath(join(homedir(), ".claude")));
   });
 
   test("CLAUDE_SETTINGS_FILE points under the config dir", () => {
-    expect(env.CLAUDE_SETTINGS_FILE).toBe(join(homedir(), ".claude", "settings.json"));
+    expect(env.CLAUDE_SETTINGS_FILE).toBe(posixPath(join(homedir(), ".claude", "settings.json")));
   });
 
   test("CLAUDE_USER_CONFIG is $HOME/.claude.json", () => {
-    expect(env.CLAUDE_USER_CONFIG).toBe(join(homedir(), ".claude.json"));
+    expect(env.CLAUDE_USER_CONFIG).toBe(posixPath(join(homedir(), ".claude.json")));
   });
 
   test("BUDDY_STATE_DIR defaults to $HOME/.claude-buddy", () => {
-    expect(env.BUDDY_STATE_DIR).toBe(join(homedir(), ".claude-buddy"));
+    expect(env.BUDDY_STATE_DIR).toBe(posixPath(join(homedir(), ".claude-buddy")));
   });
 });
 
@@ -71,9 +88,9 @@ describe("scripts/paths.sh (CLAUDE_CONFIG_DIR set)", () => {
     const profile = mkdtempSync(join(tmpdir(), "claude-buddy-sh-"));
     try {
       const env = sourcePaths({ CLAUDE_CONFIG_DIR: profile });
-      expect(env.CLAUDE_CFG_DIR).toBe(profile);
-      expect(env.CLAUDE_SETTINGS_FILE).toBe(join(profile, "settings.json"));
-      expect(env.BUDDY_STATE_DIR).toBe(join(profile, "buddy-state"));
+      expect(env.CLAUDE_CFG_DIR).toBe(posixPath(profile));
+      expect(env.CLAUDE_SETTINGS_FILE).toBe(posixPath(join(profile, "settings.json")));
+      expect(env.BUDDY_STATE_DIR).toBe(posixPath(join(profile, "buddy-state")));
     } finally {
       rmSync(profile, { recursive: true, force: true });
     }
@@ -84,7 +101,7 @@ describe("scripts/paths.sh (CLAUDE_CONFIG_DIR set)", () => {
     try {
       writeFileSync(join(profile, ".claude.json"), "{}");
       const env = sourcePaths({ CLAUDE_CONFIG_DIR: profile });
-      expect(env.CLAUDE_USER_CONFIG).toBe(join(profile, ".claude.json"));
+      expect(env.CLAUDE_USER_CONFIG).toBe(posixPath(join(profile, ".claude.json")));
     } finally {
       rmSync(profile, { recursive: true, force: true });
     }
@@ -97,7 +114,7 @@ describe("scripts/paths.sh (CLAUDE_CONFIG_DIR set)", () => {
     // enabling buddy in a profile could mutate the home-level file.
     try {
       const env = sourcePaths({ CLAUDE_CONFIG_DIR: profile });
-      expect(env.CLAUDE_USER_CONFIG).toBe(join(profile, ".claude.json"));
+      expect(env.CLAUDE_USER_CONFIG).toBe(posixPath(join(profile, ".claude.json")));
     } finally {
       rmSync(profile, { recursive: true, force: true });
     }
@@ -113,7 +130,7 @@ describe("scripts/paths.sh shared identity opt-in", () => {
 
     expect(env.CLAUDE_CFG_DIR).toBe("/tmp/profile");
     expect(env.CLAUDE_SETTINGS_FILE).toBe("/tmp/profile/settings.json");
-    expect(env.BUDDY_STATE_DIR).toBe(join(homedir(), ".coding-buddy", "shared"));
+    expect(env.BUDDY_STATE_DIR).toBe(posixPath(join(homedir(), ".coding-buddy", "shared")));
   });
 
   test("honors an explicit shared state root", () => {

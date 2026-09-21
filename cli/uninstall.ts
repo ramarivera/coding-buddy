@@ -37,7 +37,8 @@ try {
     }
     // Clean up all session-scoped files
     const patterns = ["popup-stop.", "popup-resize.", "popup-env.", "popup-scroll.",
-                      "reaction.", ".last_reaction.", ".last_comment."];
+                      "reaction.", ".last_reaction.", ".last_comment.",
+                      ".last_stop_hook."];
     for (const f of readdirSync(STATE_DIR)) {
       if (patterns.some(p => f.startsWith(p))) {
         rmSync(join(STATE_DIR, f), { force: true });
