@@ -56,6 +56,7 @@ import {
 } from "./path";
 import { getReaction } from "../core/reactions.ts"
 import { renderCompanionCardMarkdown } from "./art";
+import { skinFor } from "./custom-art.ts";
 import {
   incrementEvent, checkAndAward, trackActiveDay,
   renderAchievementsCardMarkdown,
@@ -227,7 +228,7 @@ server.tool(
     incrementEvent("pets", 1, activeSlot());
     awardXp("buddy_pet", activeSlot(), companion.bones.species, companion.bones.rarity);
 
-    const face = renderFace(companion.bones.species, companion.bones.eye);
+    const face = renderFace(companion.bones.species, companion.bones.eye, skinFor(companion.bones)?.face);
     const newAch = checkAndAward(activeSlot());
     const achNotice = newAch.length > 0
       ? `\n${newAch.map((a) => `${a.icon} Achievement Unlocked: ${a.name}!`).join("\n")}`
@@ -337,7 +338,7 @@ server.tool(
     const achName = newAch.length > 0 ? newAch[0].icon + " " + newAch[0].name : undefined;
     writeStatusState(companion, comment, undefined, achName);
 
-    const face = renderFace(companion.bones.species, companion.bones.eye);
+    const face = renderFace(companion.bones.species, companion.bones.eye, skinFor(companion.bones)?.face);
     const achNotice = newAch.length > 0
       ? `\n${newAch.map((a) => `${a.icon} Achievement Unlocked: ${a.name}!`).join("\n")}`
       : "";

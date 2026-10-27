@@ -37,6 +37,7 @@ import {
   type SearchCriteria, type SearchResult, type BuddyBones,
 } from "../core/engine.ts";
 import { getArtFrame, HAT_ART } from "../server/art.ts";
+import { skinFor } from "../server/custom-art.ts";
 import {
   ACHIEVEMENTS, loadUnlocked, loadEvents,
   type Achievement, type UnlockedAchievement, type EventCounters,
@@ -1360,7 +1361,7 @@ function BuddyCardPane({ companion, slot, isActive, editablePersonality, editCur
   const color = RARITY_COLOR[b.rarity] ?? "white";
   const stars = RARITY_STARS[b.rarity];
   const shiny = b.shiny ? " ✨" : "";
-  const art = getArtFrame(b.species, b.eye, 0);
+  const art = getArtFrame(b.species, b.eye, 0, skinFor(b));
   const hatLine = HAT_ART[b.hat];
   if (hatLine && !art[0].trim()) art[0] = hatLine;
   const reaction = loadReaction();
