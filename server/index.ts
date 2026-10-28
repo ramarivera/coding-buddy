@@ -1182,6 +1182,18 @@ server.tool(
     slot: z.string().min(1).max(14).describe("Slot name to remove"),
   },
   async ({ slot }) => {
+    // slugify() maps input with no letters or digits (e.g. "---", "🐢") to the
+    // fallback "buddy", which could delete a saved buddy the user never named.
+    if (!/[a-z0-9]/.test(slot.toLowerCase())) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Invalid slot "${slot}". Slot names need at least one letter or digit. Use buddy_list to see saved buddies.`,
+          },
+        ],
+      };
+    }
     const targetSlot = slugify(slot);
     const activeSlot = loadActiveSlot();
 
