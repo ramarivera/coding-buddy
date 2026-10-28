@@ -228,8 +228,9 @@ export class FileBuddyStorage
       try {
         const owner = parseOwner(readFileSync(join(lockDir, "owner"), "utf8"));
         if (isProcessAlive(owner.pid)) return false;
-      } catch {
-        // Missing or unreadable ownership metadata can be recovered by age.
+      } catch (error) {
+        if (!isNodeError(error) || error.code !== "ENOENT") return false;
+        // The owner file is confirmed missing, so recover by age.
       }
 
       // The lock directory is stale. Try to atomically rename it into a unique

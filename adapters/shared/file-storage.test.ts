@@ -105,58 +105,61 @@ describe("cross-process locking", () => {
     expect(ompStorage.loadCounters().commands_run).toBe(workers * increments);
   });
 
-  test("recovers from a stale lock left by a dead process", () => {
+  test("recovers from a stale lock left by a dead process", async () => {
     const parent = mkdtempSync(join(tmpdir(), "buddy-lock-stale-"));
     temporaryDirectories.push(parent);
     const stateDir = join(parent, "state");
     mkdirSync(stateDir, { recursive: true });
     const storage = new FileBuddyStorage(stateDir);
 
-    // Leave a stale directory lock with an ancient mtime.
+    const deadOwner = spawn("bun", ["-e", ""]);
+    const deadOwnerDone = Promise.withResolvers<void>();
+    deadOwner.on("exit", (code) =>
+      code === 0 ? deadOwnerDone.resolve() : deadOwnerDone.reject(new Error(`Owner exited with code ${code}`))
+    );
+    deadOwner.on("error", (err) => deadOwnerDone.reject(err));
+    await deadOwnerDone.promise;
+
+    // Leave a stale directory lock with valid metadata for a dead process.
     const lockDir = join(stateDir, ".lock");
     mkdirSync(lockDir, { recursive: true });
+    writeFileSync(join(lockDir, "owner"), JSON.stringify({ pid: deadOwner.pid, token: "dead-owner-token" }));
     utimesSync(lockDir, 0, 0);
 
     storage.increment("commands_run");
 
     expect(storage.loadCounters().commands_run).toBe(1);
   });
-  test("does not remove a fresh live lock", async () => {
-    const parent = mkdtempSync(join(tmpdir(), "buddy-fresh-lock-"));
+  test("does not remove a stale live lock", async () => {
+    const parent = mkdtempSync(join(tmpdir(), "buddy-stale-live-lock-"));
     temporaryDirectories.push(parent);
     const stateDir = join(parent, "state");
     mkdirSync(stateDir, { recursive: true });
     const lockDir = join(stateDir, ".lock");
     const readyFile = join(parent, "holder-ready");
-    const releaseFile = join(parent, "release");
     const ownerToken = "live-holder-token";
 
-    const holderPath = join(parent, "fresh-lock-holder.ts");
+    const holderPath = join(parent, "stale-lock-holder.ts");
     const holderCode =
-      `import { existsSync, mkdirSync, rmdirSync, unlinkSync, watch, writeFileSync } from "node:fs";\n` +
+      `import { mkdirSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";\n` +
       `const lockDir = "${lockDir}";\n` +
       `const readyFile = "${readyFile}";\n` +
-      `const releaseFile = "${releaseFile}";\n` +
-      `const parentDir = "${parent}";\n` +
       `let released = false;\n` +
       `mkdirSync(lockDir, { recursive: true });\n` +
       `writeFileSync(lockDir + "/owner", JSON.stringify({ pid: process.pid, token: "${ownerToken}" }));\n` +
-      `let watcher;\n` +
       `function releaseLock() {\n` +
-      `  if (!released && existsSync(releaseFile)) {\n` +
+      `  if (!released) {\n` +
       `    released = true;\n` +
-      `    watcher.close();\n` +
       `    unlinkSync(lockDir + "/owner");\n` +
       `    rmdirSync(lockDir);\n` +
       `    process.exit(0);\n` +
       `  }\n` +
       `}\n` +
-      `watcher = watch(parentDir, () => releaseLock());\n` +
-      `releaseLock();\n` +
+      `process.on("message", releaseLock);\n` +
       `writeFileSync(readyFile, "");\n`;
     writeFileSync(holderPath, holderCode, "utf8");
 
-    const incrementerPath = join(parent, "fresh-lock-incrementer.ts");
+    const incrementerPath = join(parent, "stale-lock-incrementer.ts");
     const fileStoragePath = join(import.meta.dir, "file-storage.ts");
     const startedFile = join(parent, "started");
     const doneFile = join(parent, "done.json");
@@ -170,50 +173,58 @@ describe("cross-process locking", () => {
       `new FileBuddyStorage(stateDir).increment("commands_run");\n` +
       `writeFileSync(doneFile, JSON.stringify({ commands_run: new FileBuddyStorage(stateDir).loadCounters().commands_run }));\n`;
     writeFileSync(incrementerPath, incrementerCode, "utf8");
-    const holder = spawn("bun", ["run", holderPath], { stdio: "ignore" });
+    const holder = spawn("bun", ["run", holderPath], { stdio: ["ignore", "ignore", "ignore", "ipc"] });
     const holderDone = Promise.withResolvers<void>();
     holder.on("exit", (code) =>
       code === 0 ? holderDone.resolve() : holderDone.reject(new Error(`Holder exited with code ${code}`))
     );
     holder.on("error", (err) => holderDone.reject(err));
 
-    await (async function waitForFile(file: string) {
-      if (existsSync(file)) return;
-      const { promise, resolve, reject } = Promise.withResolvers<void>();
-      const watcher = watch(parent, () => {
-        if (existsSync(file)) resolve();
-      });
-      watcher.on("error", (err) => reject(err));
-      await promise.finally(() => watcher.close());
-    })(readyFile);
+    let incrementer: ReturnType<typeof spawn> | undefined;
+    let incrementerDone: Promise<void> | undefined;
+    try {
+      await (async function waitForFile(file: string) {
+        if (existsSync(file)) return;
+        const { promise, resolve, reject } = Promise.withResolvers<void>();
+        const watcher = watch(parent, () => {
+          if (existsSync(file)) resolve();
+        });
+        watcher.on("error", (err) => reject(err));
+        await promise.finally(() => watcher.close());
+      })(readyFile);
 
-    expect(existsSync(lockDir)).toBe(true);
+      expect(existsSync(lockDir)).toBe(true);
+      utimesSync(lockDir, 0, 0);
 
-    const incrementer = spawn("bun", ["run", incrementerPath], { stdio: "ignore" });
-    const incrementerDone = Promise.withResolvers<void>();
-    incrementer.on("exit", (code) =>
-      code === 0 ? incrementerDone.resolve() : incrementerDone.reject(new Error(`Incrementer exited with code ${code}`))
-    );
-    incrementer.on("error", (err) => incrementerDone.reject(err));
+      incrementer = spawn("bun", ["run", incrementerPath], { stdio: "ignore" });
+      const incrementerResult = Promise.withResolvers<void>();
+      incrementerDone = incrementerResult.promise;
+      incrementer.on("exit", (code) =>
+        code === 0 ? incrementerResult.resolve() : incrementerResult.reject(new Error(`Incrementer exited with code ${code}`))
+      );
+      incrementer.on("error", (err) => incrementerResult.reject(err));
 
-    await (async function waitForFile(file: string) {
-      if (existsSync(file)) return;
-      const { promise, resolve, reject } = Promise.withResolvers<void>();
-      const watcher = watch(parent, () => {
-        if (existsSync(file)) resolve();
-      });
-      watcher.on("error", (err) => reject(err));
-      await promise.finally(() => watcher.close());
-    })(startedFile);
+      await (async function waitForFile(file: string) {
+        if (existsSync(file)) return;
+        const { promise, resolve, reject } = Promise.withResolvers<void>();
+        const watcher = watch(parent, () => {
+          if (existsSync(file)) resolve();
+        });
+        watcher.on("error", (err) => reject(err));
+        await promise.finally(() => watcher.close());
+      })(startedFile);
 
-    await new Promise((resolve) => setTimeout(resolve, 3300));
-    expect(JSON.parse(readFileSync(join(lockDir, "owner"), "utf8")).token).toBe(ownerToken);
-
-    writeFileSync(releaseFile, "");
-    await incrementerDone.promise;
-    await holderDone.promise;
-
-    expect(JSON.parse(readFileSync(doneFile, "utf8")).commands_run).toBe(1);
+      expect(existsSync(lockDir)).toBe(true);
+      expect(JSON.parse(readFileSync(join(lockDir, "owner"), "utf8")).token).toBe(ownerToken);
+      holder.send("release");
+      await Promise.all([incrementerDone, holderDone.promise]);
+      expect(JSON.parse(readFileSync(doneFile, "utf8")).commands_run).toBe(1);
+    } finally {
+      if (holder.connected) holder.send("release");
+      await Promise.allSettled([...(incrementerDone ? [incrementerDone] : []), holderDone.promise]);
+      if (holder.exitCode === null) holder.kill();
+      if (incrementer?.exitCode === null) incrementer.kill();
+    }
   });
   test("concurrent saveSlot and saveActiveSlot calls do not lose companions", async () => {
     const parent = mkdtempSync(join(tmpdir(), "buddy-slot-concurrency-"));
