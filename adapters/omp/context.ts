@@ -8,6 +8,10 @@ export interface OmpBuddyUi {
 
 export interface OmpBuddyUiContext {
   ui: OmpBuddyUi;
+  // OMP 17 contexts always provide this; optional keeps legacy/custom contexts on shared storage.
+  sessionManager?: Pick<ExtensionContext["sessionManager"], "getBranch"> & {
+    getSessionId?: () => string;
+  };
   setTimeout?: (callback: () => void, ms?: number) => Timer;
   clearTimer?: (timer: Timer) => void;
 }
@@ -18,5 +22,9 @@ export interface OmpBuddyContext extends OmpBuddyUiContext {
     ExtensionContext["modelRegistry"],
     "find" | "getApiKeyForProvider" | "getProviderHeaders"
   >;
-  sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch">;
+  sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> & { getSessionId?: () => string };
+}
+
+export function getOmpSessionScope(ctx: OmpBuddyUiContext): string | undefined {
+  return ctx.sessionManager?.getSessionId?.();
 }

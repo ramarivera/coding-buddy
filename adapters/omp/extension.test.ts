@@ -160,11 +160,8 @@ describe("OMP extension behavior", () => {
 
     expect([...harness.commands.keys()]).toEqual(["buddy"]);
     expect([...harness.handlers.keys()].sort()).toEqual([
-      "input",
-      "session_shutdown",
-      "session_start",
-      "tool_result",
-      "turn_end",
+      "input", "session_shutdown", "session_start",
+      "session_switch", "tool_result", "turn_end",
     ]);
   });
 
