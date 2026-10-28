@@ -45,9 +45,14 @@ describe("OMP reaction session isolation", () => {
     const widgets = new Map<string, string[][]>();
     let activeSession = "session-a";
     let finishCompletion!: (message: AssistantMessage) => void;
+    let finishEmptyCompletion!: (message: AssistantMessage) => void;
     let completionStarted!: () => void;
+    let emptyCompletionStarted!: () => void;
     const started = new Promise<void>((resolve) => { completionStarted = resolve; });
+    const emptyStarted = new Promise<void>((resolve) => { emptyCompletionStarted = resolve; });
     const completion = new Promise<AssistantMessage>((resolve) => { finishCompletion = resolve; });
+    const emptyCompletion = new Promise<AssistantMessage>((resolve) => { finishEmptyCompletion = resolve; });
+    let completionCount = 0;
 
     const api = {
       on(event: string, handler: (event: unknown, ctx: OmpBuddyContext) => unknown) {
@@ -94,8 +99,13 @@ describe("OMP reaction session isolation", () => {
       ui,
       logger,
       completeTurnComment: async () => {
-        completionStarted();
-        return completion;
+        completionCount += 1;
+        if (completionCount === 1) {
+          completionStarted();
+          return completion;
+        }
+        emptyCompletionStarted();
+        return emptyCompletion;
       },
     });
     registerBuddyCommands(api, { service, storage, ui });
@@ -145,5 +155,29 @@ describe("OMP reaction session isolation", () => {
     switchSession({ type: "session_switch", reason: "resume", previousSessionFile: undefined }, ctx);
     const aWidget = widgets.get("session-a")?.at(-1)?.join("\n") ?? "";
     expect(aWidget).toContain("session A reaction");
+
+    const emptyTurn: TurnEndEvent = {
+      type: "turn_end",
+      turnIndex: 2,
+      message: assistantMessage("```ts\nconst value = 1;\n```"),
+      toolResults: [],
+    };
+    const pendingEmptyTurn = turnEnd(emptyTurn, ctx);
+    await emptyStarted;
+    activeSession = "session-b";
+    switchSession({ type: "session_switch", reason: "resume", previousSessionFile: undefined }, ctx);
+    const bWritesBeforeEmptyCompletion = widgets.get("session-b")?.length ?? 0;
+
+    finishEmptyCompletion(assistantMessage(""));
+    await pendingEmptyTurn;
+    const bAfterEmptyCompletion = widgets.get("session-b") ?? [];
+    expect(bAfterEmptyCompletion.length).toBe(bWritesBeforeEmptyCompletion);
+    expect(bAfterEmptyCompletion.at(-1)?.join("\n")).not.toContain("session A reaction");
+
+    process.stdout.emit("resize");
+    await new Promise((resolve) => setTimeout(resolve, 75));
+    const bAfterResize = widgets.get("session-b") ?? [];
+    expect(bAfterResize.length).toBeGreaterThan(bWritesBeforeEmptyCompletion);
+    expect(bAfterResize.at(-1)?.join("\n")).not.toContain("session A reaction");
   });
 });

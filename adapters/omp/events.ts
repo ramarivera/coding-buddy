@@ -204,7 +204,9 @@ export function registerOmpBuddyEvents(pi: ExtensionAPI, deps: RegisterOmpBuddyE
     if (!generated.comment) {
       const assistantLength = isAssistantMessage(event.message) ? getAssistantText(event.message).length : 0;
       deps.logger.warn("turn_end_comment_missing", { assistantLength });
-      deps.ui.refresh(ctx, progress.companion, deps.storage.loadLatest(scope), progress.achievements, scope);
+      if (getOmpSessionScope(ctx) === scope) {
+        deps.ui.refresh(ctx, progress.companion, deps.storage.loadLatest(scope), progress.achievements, scope);
+      }
       return;
     }
 

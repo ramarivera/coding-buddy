@@ -8,6 +8,7 @@ export interface OmpBuddyUi {
 
 export interface OmpBuddyUiContext {
   ui: OmpBuddyUi;
+  // OMP 17 contexts always provide this; optional keeps legacy/custom contexts on shared storage.
   sessionManager?: Pick<ExtensionContext["sessionManager"], "getBranch"> & {
     getSessionId?: () => string;
   };

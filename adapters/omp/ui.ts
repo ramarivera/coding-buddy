@@ -1,4 +1,4 @@
-import type { OmpBuddyUiContext } from "./context.ts";
+import { getOmpSessionScope, type OmpBuddyUiContext } from "./context.ts";
 import type { Achievement } from "../../core/achievements.ts";
 import type { Companion, ReactionState } from "../../core/model.ts";
 import { renderAchievementsSummary } from "./renderers.ts";
@@ -46,6 +46,7 @@ export class OmpBuddyUI {
     achievements: Achievement[] = [],
     scope = "default",
   ): void {
+    if ((getOmpSessionScope(ctx) ?? "default") !== scope) return;
     const currentReaction = reaction ?? null;
     const muted = this.storage.isMuted();
     const scheduler = getScheduler(ctx);
@@ -57,7 +58,9 @@ export class OmpBuddyUI {
       this.buddies.set(scope, buddy);
     }
     buddy.refresh(
-      (lines) => ctx.ui.setWidget("buddy", lines),
+      (lines) => {
+        if ((getOmpSessionScope(ctx) ?? "default") === scope) ctx.ui.setWidget("buddy", lines);
+      },
       companion,
       muted ? null : currentReaction,
       [...achievements],
@@ -74,6 +77,7 @@ export class OmpBuddyUI {
     const reactionTimestamp = currentReaction.timestamp;
     const delay = Math.max(0, reactionTimestamp + ttl * 1000 + 1 - Date.now());
     const timer = scheduler.setTimeout(() => {
+      if ((getOmpSessionScope(ctx) ?? "default") !== scope) return;
       const latest = this.storage.loadLatest(scope);
       if (latest && latest.timestamp >= reactionTimestamp) {
         this.refresh(ctx, companion, latest, [], scope);
@@ -95,7 +99,7 @@ export class OmpBuddyUI {
     unlocked: Array<{ achievement: Achievement; unlockedAt: number; slot?: string }>,
     remaining: Achievement[],
   ): void {
-    const scope = ctx.sessionManager?.getSessionId?.() ?? "default";
+    const scope = getOmpSessionScope(ctx) ?? "default";
     this.buddies.get(scope)?.clear();
     ctx.ui.setWidget("buddy", renderAchievementsSummary(unlocked, remaining));
     ctx.ui.notify(`Achievements: ${unlocked.length} unlocked`, "info");
