@@ -4,6 +4,7 @@ import type {
   InputEvent,
   InputEventResult,
   SessionStartEvent,
+  SessionSwitchEvent,
   ToolResultEvent,
   TurnEndEvent,
 } from "@oh-my-pi/pi-coding-agent";
@@ -16,7 +17,7 @@ import { extractGeneratedPersonality, generatePersonalityPrompt, getNameReaction
 import { OmpBuddyStorage } from "./storage.ts";
 import { buildBuddyReactionPrompt, buildBuddyReactionSystemPrompt, normalizeBuddyComment, stripBuddyComments } from "./prompt.ts";
 import { OmpBuddyUI } from "./ui.ts";
-import type { OmpBuddyContext } from "./context.ts";
+import { getOmpSessionScope, type OmpBuddyContext } from "./context.ts";
 
 export type TurnCommentCompleter = (
   model: Parameters<typeof complete>[0],
@@ -42,6 +43,8 @@ interface RegisterOmpBuddyEventsDeps {
 
 export function registerOmpBuddyEvents(pi: ExtensionAPI, deps: RegisterOmpBuddyEventsDeps): void {
   pi.on("session_start", async (_event: SessionStartEvent, ctx: OmpBuddyContext) => {
+    const scope = getOmpSessionScope(ctx);
+    deps.ui.disposeOtherSessions(scope ?? "default");
     const result = deps.service.startSession();
     let companion = result.companion;
     if (result.created) {
@@ -59,14 +62,24 @@ export function registerOmpBuddyEvents(pi: ExtensionAPI, deps: RegisterOmpBuddyE
       species: companion.bones.species,
       created: result.created,
     });
-    deps.ui.refresh(ctx, companion, deps.storage.loadLatest(), result.achievements);
-    if (result.created) {
-      ctx.ui.notify(`A new buddy hatched: ${companion.name}`, "info");
+    if (getOmpSessionScope(ctx) === scope) {
+      deps.ui.refresh(ctx, companion, deps.storage.loadLatest(scope), result.achievements, scope);
+      deps.ui.notifyAchievements(ctx, result.achievements);
+      if (result.created) {
+        ctx.ui.notify(`A new buddy hatched: ${companion.name}`, "info");
+      }
     }
-    deps.ui.notifyAchievements(ctx, result.achievements);
+  });
+
+  pi.on("session_switch", (_event: SessionSwitchEvent, ctx: OmpBuddyContext) => {
+    const scope = getOmpSessionScope(ctx);
+    deps.ui.disposeOtherSessions(scope ?? "default");
+    const companion = deps.service.ensureCompanion().companion;
+    deps.ui.refresh(ctx, companion, deps.storage.loadLatest(scope), [], scope);
   });
 
   pi.on("input", async (event: InputEvent, ctx: OmpBuddyContext): Promise<InputEventResult> => {
+    const scope = getOmpSessionScope(ctx);
     if (event.source === "extension" || deps.storage.isMuted()) {
       deps.logger.debug("input_skipped", {
         source: event.source,
@@ -87,20 +100,21 @@ export function registerOmpBuddyEvents(pi: ExtensionAPI, deps: RegisterOmpBuddyE
     });
 
     const reaction = getNameReaction(companion.bones.species);
-    const result = deps.service.recordComment(reaction, "turn");
-    deps.ui.refresh(ctx, result.companion, result.state, result.achievements);
+    const result = deps.service.recordComment(reaction, "turn", scope);
+    deps.ui.refresh(ctx, result.companion, result.state, result.achievements, scope);
     deps.ui.notifyAchievements(ctx, result.achievements);
     return { handled: false };
   });
 
   pi.on("tool_result", async (event: ToolResultEvent, ctx: OmpBuddyContext) => {
+    const scope = getOmpSessionScope(ctx);
     if (deps.storage.isMuted()) {
       deps.logger.debug("tool_result_skipped", { reason: "muted" });
       return;
     }
 
     const text = extractOmpToolText(event);
-    const canEmit = shouldEmitPassiveReaction(deps.storage);
+    const canEmit = shouldEmitPassiveReaction(deps.storage, scope);
     let result: ReactionResult | undefined;
 
     const companion = deps.service.ensureCompanion().companion;
@@ -108,39 +122,39 @@ export function registerOmpBuddyEvents(pi: ExtensionAPI, deps: RegisterOmpBuddyE
       if (looksLikeTestFailure(text)) {
         const count = extractFailureCount(text);
         if (canEmit) {
-          result = deps.service.recordTestFailure(undefined, count);
+          result = deps.service.recordTestFailure(scope, count);
         } else {
           const achievements = deps.service.trackTestFailure(undefined, count);
-          if (achievements.length > 0) { deps.ui.refresh(ctx, companion, deps.storage.loadLatest(), achievements); }
+          if (achievements.length > 0) { deps.ui.refresh(ctx, companion, deps.storage.loadLatest(scope), achievements, scope); }
         }
       } else if (event.isError || (event.details?.exitCode ?? 0) !== 0) {
         const line = firstLineNumber(text);
         if (canEmit) {
-          result = deps.service.recordToolError(undefined, line);
+          result = deps.service.recordToolError(scope, line);
         } else {
           const achievements = deps.service.trackToolError(undefined, line);
-          if (achievements.length > 0) { deps.ui.refresh(ctx, companion, deps.storage.loadLatest(), achievements); }
+          if (achievements.length > 0) { deps.ui.refresh(ctx, companion, deps.storage.loadLatest(scope), achievements, scope); }
         }
       } else {
         const diffLines = extractLargeDiffLines(text);
         if (diffLines >= 80) {
           if (canEmit) {
-            result = deps.service.recordLargeDiff(diffLines);
+            result = deps.service.recordLargeDiff(diffLines, scope);
           } else {
             const achievements = deps.service.trackLargeDiff(diffLines);
-            if (achievements.length > 0) { deps.ui.refresh(ctx, companion, deps.storage.loadLatest(), achievements); }
+            if (achievements.length > 0) { deps.ui.refresh(ctx, companion, deps.storage.loadLatest(scope), achievements, scope); }
           }
         } else if (canEmit && looksLikeSuccess(text)) {
-          result = deps.service.recordComment(getSuccessReaction(companion.bones.species), "turn");
+          result = deps.service.recordComment(getSuccessReaction(companion.bones.species), "turn", scope);
         }
       }
     } else if (event.isError) {
       const line = firstLineNumber(text);
       if (canEmit) {
-        result = deps.service.recordToolError(undefined, line);
+        result = deps.service.recordToolError(scope, line);
       } else {
         const achievements = deps.service.trackToolError(undefined, line);
-        if (achievements.length > 0) { deps.ui.refresh(ctx, companion, deps.storage.loadLatest(), achievements); }
+        if (achievements.length > 0) { deps.ui.refresh(ctx, companion, deps.storage.loadLatest(scope), achievements, scope); }
       }
     }
 
@@ -162,15 +176,16 @@ export function registerOmpBuddyEvents(pi: ExtensionAPI, deps: RegisterOmpBuddyE
       reactionLength: result.state.reaction.length,
       textLength: text.length,
     });
-    deps.ui.refresh(ctx, result.companion, result.state, result.achievements);
+    deps.ui.refresh(ctx, result.companion, result.state, result.achievements, scope);
     deps.ui.notifyAchievements(ctx, result.achievements);
   });
 
   pi.on("turn_end", async (event: TurnEndEvent, ctx: OmpBuddyContext) => {
+    const scope = getOmpSessionScope(ctx);
     const progress = deps.service.recordTurnOnly();
     if (deps.storage.isMuted()) {
       deps.logger.debug("turn_end_skipped", { reason: "muted" });
-      deps.ui.refresh(ctx, progress.companion, null, progress.achievements);
+      deps.ui.refresh(ctx, progress.companion, null, progress.achievements, scope);
       return;
     }
 
@@ -189,7 +204,7 @@ export function registerOmpBuddyEvents(pi: ExtensionAPI, deps: RegisterOmpBuddyE
     if (!generated.comment) {
       const assistantLength = isAssistantMessage(event.message) ? getAssistantText(event.message).length : 0;
       deps.logger.warn("turn_end_comment_missing", { assistantLength });
-      deps.ui.refresh(ctx, progress.companion, deps.storage.loadLatest(), progress.achievements);
+      deps.ui.refresh(ctx, progress.companion, deps.storage.loadLatest(scope), progress.achievements, scope);
       return;
     }
 
@@ -198,10 +213,12 @@ export function registerOmpBuddyEvents(pi: ExtensionAPI, deps: RegisterOmpBuddyE
       reactionLength: generated.comment.length,
     });
 
-    const reaction = deps.service.recordComment(generated.comment, "turn");
+    const reaction = deps.service.recordComment(generated.comment, "turn", scope);
     const achievements = mergeAchievements(progress.achievements, reaction.achievements);
-    deps.ui.refresh(ctx, reaction.companion, reaction.state, achievements);
-    deps.ui.notifyAchievements(ctx, achievements);
+    if (getOmpSessionScope(ctx) === scope) {
+      deps.ui.refresh(ctx, reaction.companion, reaction.state, achievements, scope);
+      deps.ui.notifyAchievements(ctx, achievements);
+    }
   });
   pi.on("session_shutdown", () => {
     deps.ui.dispose();
@@ -214,10 +231,10 @@ function diagnosticPreviewsEnabled(): boolean {
   return value === "1" || value === "true";
 }
 
-function shouldEmitPassiveReaction(storage: OmpBuddyStorage): boolean {
+function shouldEmitPassiveReaction(storage: OmpBuddyStorage, scope?: string): boolean {
   const cooldownSeconds = storage.loadOmpConfig().commentCooldown;
   if (cooldownSeconds <= 0) return true;
-  const latest = storage.loadLatest();
+  const latest = storage.loadLatest(scope);
   if (!latest?.timestamp) return true;
   return Date.now() - latest.timestamp >= cooldownSeconds * 1000;
 }

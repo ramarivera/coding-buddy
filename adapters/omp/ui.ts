@@ -6,24 +6,37 @@ import { OmpBuddyStorage } from "./storage.ts";
 import { BuddyWidget } from "../shared/widget-layout.ts";
 
 export class OmpBuddyUI {
-  private readonly timers: Array<{ timer: Timer; clear: (timer: Timer) => void }> = [];
-  private readonly buddy = new BuddyWidget();
+  private readonly timers = new Map<string, Array<{ timer: Timer; clear: (timer: Timer) => void }>>();
+  private readonly buddies = new Map<string, BuddyWidget>();
 
   constructor(private readonly storage: OmpBuddyStorage) {}
 
-  cancelTimers(): void {
-    for (const { timer, clear } of this.timers.splice(0)) {
+  cancelTimers(scope?: string): void {
+    const scopes = scope === undefined ? [...this.timers.keys()] : [scope];
+    for (const key of scopes) for (const { timer, clear } of this.timers.get(key) ?? []) {
       try {
         clear(timer);
       } catch {
         // Ignore cleanup errors.
       }
     }
+    if (scope === undefined) this.timers.clear();
+    else this.timers.delete(scope);
   }
 
   dispose(): void {
     this.cancelTimers();
-    this.buddy.dispose();
+    for (const buddy of this.buddies.values()) buddy.dispose();
+    this.buddies.clear();
+  }
+
+  disposeOtherSessions(activeScope: string): void {
+    for (const [scope, buddy] of this.buddies) {
+      if (scope === activeScope) continue;
+      this.cancelTimers(scope);
+      buddy.dispose();
+      this.buddies.delete(scope);
+    }
   }
 
   refresh(
@@ -31,13 +44,19 @@ export class OmpBuddyUI {
     companion: Companion,
     reaction?: ReactionState | null,
     achievements: Achievement[] = [],
+    scope = "default",
   ): void {
     const currentReaction = reaction ?? null;
     const muted = this.storage.isMuted();
     const scheduler = getScheduler(ctx);
 
     ctx.ui.setStatus("buddy", undefined);
-    this.buddy.refresh(
+    let buddy = this.buddies.get(scope);
+    if (!buddy) {
+      buddy = new BuddyWidget();
+      this.buddies.set(scope, buddy);
+    }
+    buddy.refresh(
       (lines) => ctx.ui.setWidget("buddy", lines),
       companion,
       muted ? null : currentReaction,
@@ -45,7 +64,7 @@ export class OmpBuddyUI {
       scheduler ?? undefined,
     );
 
-    this.cancelTimers();
+    this.cancelTimers(scope);
     if (!currentReaction) return;
 
     const ttl = this.storage.loadConfig().reactionTTL;
@@ -55,14 +74,14 @@ export class OmpBuddyUI {
     const reactionTimestamp = currentReaction.timestamp;
     const delay = Math.max(0, reactionTimestamp + ttl * 1000 + 1 - Date.now());
     const timer = scheduler.setTimeout(() => {
-      const latest = this.storage.loadLatest();
+      const latest = this.storage.loadLatest(scope);
       if (latest && latest.timestamp >= reactionTimestamp) {
-        this.refresh(ctx, companion, latest, []);
+        this.refresh(ctx, companion, latest, [], scope);
       } else {
-        this.refresh(ctx, companion, null, []);
+        this.refresh(ctx, companion, null, [], scope);
       }
     }, delay);
-    this.timers.push({ timer, clear: scheduler.clearTimer });
+    this.timers.set(scope, [...(this.timers.get(scope) ?? []), { timer, clear: scheduler.clearTimer }]);
   }
 
   notifyAchievements(ctx: OmpBuddyUiContext, achievements: Achievement[]): void {
@@ -76,7 +95,8 @@ export class OmpBuddyUI {
     unlocked: Array<{ achievement: Achievement; unlockedAt: number; slot?: string }>,
     remaining: Achievement[],
   ): void {
-    this.buddy.clear();
+    const scope = ctx.sessionManager?.getSessionId?.() ?? "default";
+    this.buddies.get(scope)?.clear();
     ctx.ui.setWidget("buddy", renderAchievementsSummary(unlocked, remaining));
     ctx.ui.notify(`Achievements: ${unlocked.length} unlocked`, "info");
   }

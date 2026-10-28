@@ -3,7 +3,7 @@ import { BuddyCommandService, mergeAchievements } from "../../core/command-servi
 import { renderBuddyStats } from "./renderers.ts";
 import { OmpBuddyStorage, slugifySlot } from "./storage.ts";
 import { OmpBuddyUI } from "./ui.ts";
-import type { OmpBuddyUiContext } from "./context.ts";
+import { getOmpSessionScope, type OmpBuddyUiContext } from "./context.ts";
 
 interface RegisterBuddyCommandsDeps {
   service: BuddyCommandService;
@@ -18,6 +18,7 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
       const input = args.trim();
       const [command, ...rest] = input ? input.split(/\s+/) : [];
       const remainder = rest.join(" ").trim();
+      const scope = getOmpSessionScope(ctx);
 
       try {
         switch (command) {
@@ -26,8 +27,8 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
             const ensured = deps.service.ensureCompanion();
             const commandAchievements = deps.service.incrementCommandsRun();
             const achievements = mergeAchievements(ensured.achievements, commandAchievements);
-            const reaction = deps.storage.loadLatest();
-            deps.ui.refresh(ctx, ensured.companion, reaction, achievements);
+            const reaction = deps.storage.loadLatest(scope);
+            deps.ui.refresh(ctx, ensured.companion, reaction, achievements, scope);
             if (ensured.created) {
               ctx.ui.notify(`Meet ${ensured.companion.name}!`, "info");
             } else {
@@ -39,9 +40,9 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
 
           case "pet": {
             const commandAchievements = deps.service.incrementCommandsRun();
-            const result = deps.service.petBuddy();
+            const result = deps.service.petBuddy(scope);
             const achievements = mergeAchievements(commandAchievements, result.achievements);
-            deps.ui.refresh(ctx, result.companion, result.state, achievements);
+            deps.ui.refresh(ctx, result.companion, result.state, achievements, scope);
             ctx.ui.notify(`${result.companion.name} seems pleased.`, "info");
             deps.ui.notifyAchievements(ctx, achievements);
             return;
@@ -63,7 +64,7 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
             const companion = deps.service.renameBuddy(remainder);
             const ensured = deps.service.ensureCompanion();
             const achievements = mergeAchievements(commandAchievements, ensured.achievements);
-            deps.ui.refresh(ctx, companion, deps.storage.loadLatest(), achievements);
+            deps.ui.refresh(ctx, companion, deps.storage.loadLatest(scope), achievements, scope);
             ctx.ui.notify(`Buddy renamed to ${companion.name}.`, "info");
             deps.ui.notifyAchievements(ctx, achievements);
             return;
@@ -75,7 +76,7 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
             const companion = deps.service.setPersonality(remainder);
             const ensured = deps.service.ensureCompanion();
             const achievements = mergeAchievements(commandAchievements, ensured.achievements);
-            deps.ui.refresh(ctx, companion, deps.storage.loadLatest(), achievements);
+            deps.ui.refresh(ctx, companion, deps.storage.loadLatest(scope), achievements, scope);
             ctx.ui.notify(`${companion.name}'s personality was updated.`, "info");
             deps.ui.notifyAchievements(ctx, achievements);
             return;
@@ -86,7 +87,7 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
             deps.storage.setMuted(true);
             const ensured = deps.service.ensureCompanion();
             const achievements = mergeAchievements(commandAchievements, ensured.achievements);
-            deps.ui.refresh(ctx, ensured.companion, null, achievements);
+            deps.ui.refresh(ctx, ensured.companion, null, achievements, scope);
             ctx.ui.notify(`${ensured.companion.name} goes quiet.`, "info");
             deps.ui.notifyAchievements(ctx, achievements);
             return;
@@ -95,9 +96,9 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
           case "on": {
             const commandAchievements = deps.service.incrementCommandsRun();
             deps.storage.setMuted(false);
-            const result = deps.service.recordComment("*stretches* I'm back!");
+            const result = deps.service.recordComment("*stretches* I'm back!", "turn", scope);
             const achievements = mergeAchievements(commandAchievements, result.achievements);
-            deps.ui.refresh(ctx, result.companion, result.state, achievements);
+            deps.ui.refresh(ctx, result.companion, result.state, achievements, scope);
             ctx.ui.notify(`${result.companion.name} is back.`, "info");
             deps.ui.notifyAchievements(ctx, achievements);
             return;
@@ -108,7 +109,7 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
             const result = deps.service.saveBuddy(remainder || undefined);
             const ensured = deps.service.ensureCompanion();
             const achievements = mergeAchievements(commandAchievements, ensured.achievements);
-            deps.ui.refresh(ctx, result.companion, deps.storage.loadLatest(), achievements);
+            deps.ui.refresh(ctx, result.companion, deps.storage.loadLatest(scope), achievements, scope);
             ctx.ui.notify(`Saved ${result.companion.name} to [${result.slot}].`, "info");
             deps.ui.notifyAchievements(ctx, achievements);
             return;
@@ -120,7 +121,7 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
             if (!result) throw new Error("No saved buddy found for that slot.");
             const ensured = deps.service.ensureCompanion();
             const achievements = mergeAchievements(commandAchievements, ensured.achievements);
-            deps.ui.refresh(ctx, result.companion, deps.storage.loadLatest(), achievements);
+            deps.ui.refresh(ctx, result.companion, deps.storage.loadLatest(scope), achievements, scope);
             ctx.ui.notify(`${result.companion.name} arrives from [${result.slot}].`, "info");
             deps.ui.notifyAchievements(ctx, achievements);
             return;
@@ -153,7 +154,7 @@ export function registerBuddyCommands(pi: ExtensionAPI, deps: RegisterBuddyComma
             const result = deps.service.dismissBuddy(remainder);
             const ensured = deps.service.ensureCompanion();
             const achievements = mergeAchievements(commandAchievements, ensured.achievements);
-            deps.ui.refresh(ctx, ensured.companion, deps.storage.loadLatest(), achievements);
+            deps.ui.refresh(ctx, ensured.companion, deps.storage.loadLatest(scope), achievements, scope);
             ctx.ui.notify(`Dismissed ${result.companion.name} [${result.slot}].`, "info");
             deps.ui.notifyAchievements(ctx, achievements);
             return;

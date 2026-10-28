@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -404,9 +404,15 @@ export class FileBuddyStorage
     });
   }
 
-  loadLatest(): ReactionState | null {
+  private reactionPath(scope?: string): string {
+    if (!scope) return this.path("reaction.json");
+    const digest = createHash("sha256").update(scope).digest("hex");
+    return this.path(`reaction.${digest}.json`);
+  }
+
+  loadLatest(scope?: string): ReactionState | null {
     try {
-      const reaction = JSON.parse(readFileSync(this.path("reaction.json"), "utf8")) as ReactionState;
+      const reaction = JSON.parse(readFileSync(this.reactionPath(scope), "utf8")) as ReactionState;
       const ttl = this.loadHostConfig().reactionTTL;
       if (ttl > 0 && Date.now() - reaction.timestamp > ttl * 1000) return null;
       return reaction;
@@ -415,12 +421,12 @@ export class FileBuddyStorage
     }
   }
 
-  saveLatest(reaction: ReactionState): void {
-    this.atomicWrite(this.path("reaction.json"), JSON.stringify(reaction, null, 2));
+  saveLatest(reaction: ReactionState, scope?: string): void {
+    this.atomicWrite(this.reactionPath(scope), JSON.stringify(reaction, null, 2));
   }
 
-  clearLatestReaction(): void {
-    this.saveLatest({ reaction: "", reason: "clear", timestamp: Date.now() });
+  clearLatestReaction(scope?: string): void {
+    this.saveLatest({ reaction: "", reason: "clear", timestamp: Date.now() }, scope);
   }
 
   loadConfig(): BuddyConfig {

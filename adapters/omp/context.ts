@@ -8,6 +8,9 @@ export interface OmpBuddyUi {
 
 export interface OmpBuddyUiContext {
   ui: OmpBuddyUi;
+  sessionManager?: Pick<ExtensionContext["sessionManager"], "getBranch"> & {
+    getSessionId?: () => string;
+  };
   setTimeout?: (callback: () => void, ms?: number) => Timer;
   clearTimer?: (timer: Timer) => void;
 }
@@ -18,5 +21,9 @@ export interface OmpBuddyContext extends OmpBuddyUiContext {
     ExtensionContext["modelRegistry"],
     "find" | "getApiKeyForProvider" | "getProviderHeaders"
   >;
-  sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch">;
+  sessionManager: Pick<ExtensionContext["sessionManager"], "getBranch"> & { getSessionId?: () => string };
+}
+
+export function getOmpSessionScope(ctx: OmpBuddyUiContext): string | undefined {
+  return ctx.sessionManager?.getSessionId?.();
 }
