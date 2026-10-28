@@ -137,25 +137,29 @@ describe("cross-process locking", () => {
     mkdirSync(stateDir, { recursive: true });
     const lockDir = join(stateDir, ".lock");
     const readyFile = join(parent, "holder-ready");
+    const releaseFile = join(parent, "release");
     const ownerToken = "live-holder-token";
 
     const holderPath = join(parent, "stale-lock-holder.ts");
     const holderCode =
-      `import { mkdirSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";\n` +
+      `import { existsSync, mkdirSync, rmdirSync, unlinkSync, writeFileSync } from "node:fs";\n` +
       `const lockDir = "${lockDir}";\n` +
       `const readyFile = "${readyFile}";\n` +
+      `const releaseFile = "${releaseFile}";\n` +
       `let released = false;\n` +
+      `let releaseTimer;\n` +
       `mkdirSync(lockDir, { recursive: true });\n` +
       `writeFileSync(lockDir + "/owner", JSON.stringify({ pid: process.pid, token: "${ownerToken}" }));\n` +
       `function releaseLock() {\n` +
-      `  if (!released) {\n` +
+      `  if (!released && existsSync(releaseFile)) {\n` +
       `    released = true;\n` +
+      `    clearInterval(releaseTimer);\n` +
       `    unlinkSync(lockDir + "/owner");\n` +
       `    rmdirSync(lockDir);\n` +
       `    process.exit(0);\n` +
       `  }\n` +
       `}\n` +
-      `process.on("message", releaseLock);\n` +
+      `releaseTimer = setInterval(releaseLock, 10);\n` +
       `writeFileSync(readyFile, "");\n`;
     writeFileSync(holderPath, holderCode, "utf8");
 
@@ -173,7 +177,7 @@ describe("cross-process locking", () => {
       `new FileBuddyStorage(stateDir).increment("commands_run");\n` +
       `writeFileSync(doneFile, JSON.stringify({ commands_run: new FileBuddyStorage(stateDir).loadCounters().commands_run }));\n`;
     writeFileSync(incrementerPath, incrementerCode, "utf8");
-    const holder = spawn("bun", ["run", holderPath], { stdio: ["ignore", "ignore", "ignore", "ipc"] });
+    const holder = spawn("bun", ["run", holderPath], { stdio: "ignore" });
     const holderDone = Promise.withResolvers<void>();
     holder.on("exit", (code) =>
       code === 0 ? holderDone.resolve() : holderDone.reject(new Error(`Holder exited with code ${code}`))
@@ -216,11 +220,11 @@ describe("cross-process locking", () => {
 
       expect(existsSync(lockDir)).toBe(true);
       expect(JSON.parse(readFileSync(join(lockDir, "owner"), "utf8")).token).toBe(ownerToken);
-      holder.send("release");
+      writeFileSync(releaseFile, "");
       await Promise.all([incrementerDone, holderDone.promise]);
       expect(JSON.parse(readFileSync(doneFile, "utf8")).commands_run).toBe(1);
     } finally {
-      if (holder.connected) holder.send("release");
+      writeFileSync(releaseFile, "");
       await Promise.allSettled([...(incrementerDone ? [incrementerDone] : []), holderDone.promise]);
       if (holder.exitCode === null) holder.kill();
       if (incrementer?.exitCode === null) incrementer.kill();
