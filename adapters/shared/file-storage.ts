@@ -107,6 +107,15 @@ function parseOwner(content: string): { pid?: number; token?: string } {
   const pid = Number(raw);
   return Number.isFinite(pid) ? { pid } : {};
 }
+function isProcessAlive(pid: number | undefined): boolean {
+  if (!pid || !Number.isInteger(pid) || pid < 1) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return isNodeError(error) && error.code === "EPERM";
+  }
+}
 
 export class FileBuddyStorage
   implements BuddyRepository, ReactionRepository, BuddyConfigRepository, BuddyEventRepository
@@ -212,6 +221,16 @@ export class FileBuddyStorage
 
       if (Date.now() - info.mtime.getTime() <= LOCK_STALE_MS) {
         return false;
+      }
+
+      // Age alone cannot prove a lock is abandoned. A long-running operation
+      // may legitimately hold the directory beyond the stale threshold.
+      try {
+        const owner = parseOwner(readFileSync(join(lockDir, "owner"), "utf8"));
+        if (isProcessAlive(owner.pid)) return false;
+      } catch (error) {
+        if (!isNodeError(error) || error.code !== "ENOENT") return false;
+        // The owner file is confirmed missing, so recover by age.
       }
 
       // The lock directory is stale. Try to atomically rename it into a unique
