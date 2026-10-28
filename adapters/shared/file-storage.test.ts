@@ -129,19 +129,24 @@ describe("cross-process locking", () => {
     const lockDir = join(stateDir, ".lock");
     const readyFile = join(parent, "holder-ready");
     const releaseFile = join(parent, "release");
+    const ownerToken = "live-holder-token";
 
     const holderPath = join(parent, "fresh-lock-holder.ts");
     const holderCode =
-      `import { existsSync, mkdirSync, rmdirSync, watch, writeFileSync } from "node:fs";\n` +
+      `import { existsSync, mkdirSync, rmdirSync, unlinkSync, watch, writeFileSync } from "node:fs";\n` +
       `const lockDir = "${lockDir}";\n` +
       `const readyFile = "${readyFile}";\n` +
       `const releaseFile = "${releaseFile}";\n` +
       `const parentDir = "${parent}";\n` +
+      `let released = false;\n` +
       `mkdirSync(lockDir, { recursive: true });\n` +
+      `writeFileSync(lockDir + "/owner", JSON.stringify({ pid: process.pid, token: "${ownerToken}" }));\n` +
       `let watcher;\n` +
       `function releaseLock() {\n` +
-      `  if (existsSync(releaseFile)) {\n` +
+      `  if (!released && existsSync(releaseFile)) {\n` +
+      `    released = true;\n` +
       `    watcher.close();\n` +
+      `    unlinkSync(lockDir + "/owner");\n` +
       `    rmdirSync(lockDir);\n` +
       `    process.exit(0);\n` +
       `  }\n` +
@@ -200,6 +205,9 @@ describe("cross-process locking", () => {
       watcher.on("error", (err) => reject(err));
       await promise.finally(() => watcher.close());
     })(startedFile);
+
+    await new Promise((resolve) => setTimeout(resolve, 3300));
+    expect(JSON.parse(readFileSync(join(lockDir, "owner"), "utf8")).token).toBe(ownerToken);
 
     writeFileSync(releaseFile, "");
     await incrementerDone.promise;
