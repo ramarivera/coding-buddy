@@ -1,5 +1,6 @@
 import { cpSync, existsSync, mkdirSync, rmSync, renameSync } from "fs";
 import { join } from "path";
+import { randomUUID } from "crypto";
 
 export const RUNTIME_DIRECTORIES = [
   "core",
@@ -32,8 +33,15 @@ export function stableRuntimePaths(appDir: string) {
   };
 }
 
+export const STAGING_PREFIX = "app.staging-";
+
+/**
+ * A staging directory unique to this install, so two installers running at
+ * once (a manual run and a post-apply hook, say) never delete each other's
+ * in-progress dependency install.
+ */
 export function stagingRuntimeAppDir(stateDir: string): string {
-  return join(stateDir, "app.staging");
+  return join(stateDir, `${STAGING_PREFIX}${process.pid}-${randomUUID().slice(0, 8)}`);
 }
 
 /**

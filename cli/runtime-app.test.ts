@@ -9,6 +9,7 @@ import {
   redactSecrets,
   stableRuntimeAppDir,
   stableRuntimePaths,
+  STAGING_PREFIX,
   stagingRuntimeAppDir,
   supportsTextLockfile,
 } from "./runtime-app.ts";
@@ -116,7 +117,7 @@ describe("stable runtime app", () => {
 
     const appDir = stableRuntimeAppDir(stateDir);
     expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("v1");
-    expect(existsSync(stagingRuntimeAppDir(stateDir))).toBe(false);
+    expect(readdirSync(stateDir).filter((name) => name.startsWith(STAGING_PREFIX))).toEqual([]);
   });
 
   test("a successful install swaps in the new app with what the install step added", () => {
@@ -134,7 +135,7 @@ describe("stable runtime app", () => {
     expect(appDir).toBe(stableRuntimeAppDir(stateDir));
     expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("v2");
     expect(readFileSync(join(appDir, "node_modules", "dep.txt"), "utf8")).toBe("installed");
-    expect(existsSync(stagingRuntimeAppDir(stateDir))).toBe(false);
+    expect(readdirSync(stateDir).filter((name) => name.startsWith(STAGING_PREFIX))).toEqual([]);
   });
 
   test("only Bun 1.2 and newer gets the text lockfile", () => {
@@ -158,6 +159,29 @@ describe("stable runtime app", () => {
     expect(shown).not.toContain("abcdef1234567890");
     expect(shown).toContain("_authToken=[redacted]");
     expect(shown).toContain("No version matching");
+  });
+
+  test("each install stages in its own directory", () => {
+    const first = stagingRuntimeAppDir("/state");
+    const second = stagingRuntimeAppDir("/state");
+
+    expect(first).not.toBe(second);
+    expect(first.startsWith(join("/state", STAGING_PREFIX))).toBe(true);
+  });
+
+  test("an install that overlaps another still ends with a complete app", () => {
+    const root = runtimeSource();
+    const stateDir = join(root, "state");
+    writeFileSync(join(root, "server", "index.ts"), "v1");
+
+    // The inner install starts and finishes while the outer one is still
+    // installing dependencies, which is what two concurrent installers do.
+    const appDir = installRuntimeAppAtomically(root, stateDir, () => {
+      installRuntimeAppAtomically(root, stateDir, () => {});
+    });
+
+    expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("v1");
+    expect(readdirSync(stateDir).filter((name) => name.startsWith(STAGING_PREFIX))).toEqual([]);
   });
 });
 
