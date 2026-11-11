@@ -122,6 +122,9 @@ export function promoteStagedApp(
   // True only when our move-in failed because an app we did not put there was
   // in the way: another installer finished between our two renames.
   let displacedByOther = false;
+  // Where the previous app was left if it could be neither replaced nor put
+  // back. Kept across retries so the final error can always name it.
+  let stranded: string | undefined;
 
   for (let attempt = 0; attempt < PROMOTE_ATTEMPTS; attempt++) {
     const backup = `${appDir}.previous-${process.pid}-${randomUUID().slice(0, 8)}`;
@@ -137,6 +140,7 @@ export function promoteStagedApp(
       promoting = true;
       rename(stagingDir, appDir);
       for (const dir of backups) rmSync(dir, { recursive: true, force: true });
+      if (stranded) rmSync(stranded, { recursive: true, force: true });
       return;
     } catch (error) {
       lastError = error;
@@ -145,12 +149,9 @@ export function promoteStagedApp(
         try {
           rename(backup, appDir);
         } catch {
-          // Leave the moved-aside copy where it is; the error below names it.
+          // Leave the moved-aside copy where it is; the final error names it.
           backups.splice(backups.indexOf(backup), 1);
-          lastError = new Error(
-            `Could not install the new runtime app or put the previous one back. The previous app is at ${backup}.`,
-            { cause: error },
-          );
+          stranded = backup;
         }
       }
     }
@@ -160,7 +161,16 @@ export function promoteStagedApp(
   for (const dir of backups) rmSync(dir, { recursive: true, force: true });
   // Another installer's complete app is in place: keep it. Every other
   // failure, including never getting the old app out of the way, is an error.
-  if (displacedByOther && existsSync(stableRuntimePaths(appDir).mcpServer)) return;
+  if (displacedByOther && existsSync(stableRuntimePaths(appDir).mcpServer)) {
+    if (stranded) rmSync(stranded, { recursive: true, force: true });
+    return;
+  }
+  if (stranded) {
+    throw new Error(
+      `Could not install the new runtime app or put the previous one back. The previous app is at ${stranded}; rename it to ${appDir} to recover.`,
+      { cause: lastError },
+    );
+  }
   throw lastError;
 }
 

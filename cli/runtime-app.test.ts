@@ -287,6 +287,31 @@ describe("stable runtime app", () => {
     expect(leftovers(appDir)).toEqual([]);
   });
 
+  test("when the previous app cannot be put back, the error says where it is", () => {
+    const { stateDir, staging, appDir } = stagedApp();
+    mkdirSync(join(appDir, "server"), { recursive: true });
+    writeFileSync(join(appDir, "server", "index.ts"), "previous");
+
+    // Moving the old app aside works once; every later rename fails, so the
+    // new app cannot move in, the old one cannot move back, and retries fail.
+    let moves = 0;
+    let caught: Error | undefined;
+    try {
+      promoteStagedApp(staging, appDir, (from, to) => {
+        moves += 1;
+        if (moves > 1) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+        renameSync(from, to);
+      });
+    } catch (error) {
+      caught = error as Error;
+    }
+
+    const kept = readdirSync(stateDir).filter((name) => name.startsWith(PREVIOUS_PREFIX));
+    expect(kept).toHaveLength(1);
+    expect(caught?.message).toContain(join(stateDir, kept[0]));
+    expect(readFileSync(join(stateDir, kept[0], "server", "index.ts"), "utf8")).toBe("previous");
+  });
+
   test("promotion fails loudly, without leaving staging, when no app ends up in place", () => {
     const { staging, appDir } = stagedApp();
 
