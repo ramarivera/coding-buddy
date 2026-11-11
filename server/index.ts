@@ -536,11 +536,11 @@ server.tool(
       .describe("Right-side margin between buddy and terminal edge (0–20, default 3)"),
     rainbow: z
       .array(z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color like #ff0000"))
-      .min(1)
+      .min(0)
       .max(16)
       .optional()
       .describe(
-        "Custom rainbow gradient for shiny buddies — array of 1–16 hex colors (e.g. [\"#ff0000\",\"#00ff00\"]). Omit to reset to default ROYGBIV.",
+        "Custom rainbow gradient for shiny buddies — array of 1–16 hex colors (e.g. [\"#ff0000\",\"#00ff00\"]). Pass [] to reset to default ROYGBIV.",
       ),
   },
   async ({ style, position, showRarity, width, margin, rainbow }) => {
