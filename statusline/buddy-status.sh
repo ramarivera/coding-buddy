@@ -307,6 +307,17 @@ _sweep_expired_reactions() {
             *) [ "$ts" -le "$cutoff_seconds" ] 2>/dev/null && rm -f "$file" 2>/dev/null ;;
         esac
     done
+
+    # buddy-comment.ts stamps this once per Stop event, in the same epoch
+    # seconds as .last_comment, and nothing else ever removes it.
+    for file in "$BUDDY_STATE_DIR"/.last_stop_hook.*; do
+        [ -f "$file" ] || continue
+        ts=$(cat "$file" 2>/dev/null)
+        case "$ts" in
+            ''|*[!0-9]*) rm -f "$file" 2>/dev/null ;;
+            *) [ "$ts" -le "$cutoff_seconds" ] 2>/dev/null && rm -f "$file" 2>/dev/null ;;
+        esac
+    done
 }
 
 _sweep_expired_reactions

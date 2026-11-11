@@ -52,6 +52,41 @@ describe("shipped plugin manifests", () => {
     for (const timeout of timeouts) expect(timeout).toBe(15);
   });
 
+  // Claude Code substitutes ${CLAUDE_PLUGIN_ROOT} as a plain string and runs
+  // the command through bash — Git Bash on Windows. Unquoted, the backslashes
+  // in a Windows plugin root are eaten as escapes (C:\Users\... becomes
+  // C:Users...) and the same happens to a space in a POSIX root, so the hook
+  // silently never runs. See the Windows notes in the hooks and statusline docs.
+  test("hooks/hooks.json: every hook command quotes ${CLAUDE_PLUGIN_ROOT}", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(REPO_ROOT, "hooks", "hooks.json"), "utf8"),
+    );
+
+    const commands: string[] = [];
+    for (const hookType of Object.keys(manifest.hooks ?? {})) {
+      for (const entry of manifest.hooks[hookType]) {
+        for (const hook of entry.hooks ?? []) {
+          if (hook.type === "command") commands.push(hook.command);
+        }
+      }
+    }
+
+    expect(commands.length).toBeGreaterThan(0);
+    for (const cmd of commands) {
+      expect(cmd.replaceAll('"${CLAUDE_PLUGIN_ROOT}"', "")).not.toContain("${CLAUDE_PLUGIN_ROOT}");
+    }
+  });
+
+  // An MCP stdio server is spawned directly, with no shell in between, and
+  // Windows cannot spawn a .sh file on its own: the launcher script failed
+  // there with CONNECTION_CLOSED.
+  test(".claude-plugin/plugin.json: MCP server is not launched through a shell script", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(REPO_ROOT, ".claude-plugin", "plugin.json"), "utf8"),
+    );
+    expect(manifest.mcpServers["claude-buddy"].command).not.toMatch(/\.sh$/);
+  });
+
   test(".claude-plugin/plugin.json: MCP server command resolves plugin-root-absolute", () => {
     const manifest = JSON.parse(
       readFileSync(join(REPO_ROOT, ".claude-plugin", "plugin.json"), "utf8"),

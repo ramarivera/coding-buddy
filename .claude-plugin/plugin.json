@@ -23,8 +23,10 @@
     "mcpServers": {
         "claude-buddy": {
             "type": "stdio",
-            "command": "${CLAUDE_PLUGIN_ROOT}/server/mcp-launcher.sh",
-            "args": []
+            "command": "bun",
+            "args": [
+                "${CLAUDE_PLUGIN_ROOT}/server/index.ts"
+            ]
         }
     }
 }

@@ -14,13 +14,16 @@ afterEach(() => {
 
 describe("stable runtime app", () => {
   test("derives all registrations below the per-user app directory", () => {
-    const paths = stableRuntimePaths("/home/user/.claude-buddy/app");
+    const appDir = "/home/user/.claude-buddy/app";
+    const paths = stableRuntimePaths(appDir);
 
-    expect(paths.mcpServer).toBe("/home/user/.claude-buddy/app/server/index.ts");
-    expect(paths.mcpLauncher).toBe("/home/user/.claude-buddy/app/server/mcp-launcher.sh");
-    expect(paths.statusline).toBe("/home/user/.claude-buddy/app/statusline/buddy-status.sh");
-    expect(paths.combinedStatusline).toBe("/home/user/.claude-buddy/app/statusline/combined-status.sh");
-    expect(paths.hooks).toBe("/home/user/.claude-buddy/app/hooks");
+    // join(), not a literal: stableRuntimePaths builds with the platform
+    // separator, so a "/"-spelled literal only matches on POSIX.
+    expect(paths.mcpServer).toBe(join(appDir, "server", "index.ts"));
+    expect(paths.mcpLauncher).toBe(join(appDir, "server", "mcp-launcher.sh"));
+    expect(paths.statusline).toBe(join(appDir, "statusline", "buddy-status.sh"));
+    expect(paths.combinedStatusline).toBe(join(appDir, "statusline", "combined-status.sh"));
+    expect(paths.hooks).toBe(join(appDir, "hooks"));
   });
 
   test("refreshes the copy and removes stale runtime files", () => {

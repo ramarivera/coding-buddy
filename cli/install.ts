@@ -14,6 +14,7 @@ import { resolve, dirname, join } from "path";
 import { generateBones, renderBuddy, renderFace, RARITY_STARS } from "../core/engine.ts"
 import {
   claudeConfigDir,
+  findGitBash,
   buddyStateDir,
   claudeSettingsPath,
   claudeSkillDir,
@@ -83,12 +84,55 @@ function preflight(): boolean {
     execSync("jq --version", { stdio: "ignore" });
     ok("jq found");
   } catch {
-    warn("jq not found — installing...");
-    try {
-      execSync("sudo apt-get install -y jq 2>/dev/null || brew install jq 2>/dev/null", { stdio: "ignore" });
-      ok("jq installed");
-    } catch {
-      err("Could not install jq. Install manually: apt install jq / brew install jq / windows: install from https://github.com/jqlang/jq/releases/latest and add to PATH");
+    if (process.platform === "win32") {
+      // Same auto-install the POSIX branch below does, with the package
+      // manager Windows 10+ ships. apt-get and brew cannot work here.
+      warn("jq not found — installing with winget...");
+      try {
+        execSync(
+          "winget install --id jqlang.jq --exact --silent --accept-package-agreements --accept-source-agreements",
+          { stdio: "ignore" },
+        );
+        // winget puts jq on PATH for new shells, not for this process.
+        ok("jq installed — reopen your terminal before using the status line");
+      } catch {
+        err("Could not install jq. Install manually: winget install --id jqlang.jq");
+        pass = false;
+      }
+    } else {
+      warn("jq not found — installing...");
+      try {
+        execSync("sudo apt-get install -y jq 2>/dev/null || brew install jq 2>/dev/null", { stdio: "ignore" });
+        ok("jq installed");
+      } catch {
+        err("Could not install jq. Install manually: apt install jq / brew install jq");
+        pass = false;
+      }
+    }
+  }
+
+  // Windows: Claude Code runs hooks and the status line through Git Bash, and
+  // falls back to PowerShell when it finds none — where every hook and the
+  // status line this installer registers is a .sh script that cannot run.
+  // Everything below would be dead config, so stop rather than write it.
+  // Git for Windows is not auto-installed like jq: it is a machine-wide
+  // install behind a UAC prompt, which an installer should not spring on
+  // anyone. Only the MCP server and /buddy survive without it, so
+  // CODING_BUDDY_SKIP_BASH_CHECK is there for whoever wants just those.
+  if (process.platform === "win32") {
+    const gitBash = findGitBash();
+    if (gitBash) {
+      ok(`Git Bash found (${gitBash})`);
+    } else if (process.env.CODING_BUDDY_SKIP_BASH_CHECK) {
+      warn("Git Bash not found — continuing anyway (CODING_BUDDY_SKIP_BASH_CHECK). Hooks and the status line will not run.");
+    } else {
+      err(
+        "Git Bash not found. Claude Code needs it to run the hooks and the status line on Windows.\n" +
+        "     Install it:  winget install --id Git.Git\n" +
+        "     Then reopen your terminal and run install-buddy again.\n" +
+        "     Already installed elsewhere? Point CLAUDE_CODE_GIT_BASH_PATH at bash.exe.\n" +
+        "     Only want the MCP tools? Set CODING_BUDDY_SKIP_BASH_CHECK=1.",
+      );
       pass = false;
     }
   }

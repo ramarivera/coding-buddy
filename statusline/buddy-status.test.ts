@@ -317,11 +317,13 @@ describe("buddy statusline colors", () => {
     const { configDir, stateDir } = createStatuslineFixture({ reactionTTL: 30 });
     const staleReaction = join(stateDir, "reaction.default.json");
     const staleComment = join(stateDir, ".last_comment.default");
+    const staleStopMarker = join(stateDir, ".last_stop_hook.default");
     writeFileSync(staleReaction, JSON.stringify({
       reaction: "stale reaction",
       timestamp: Date.now() - 60_000,
     }));
     writeFileSync(staleComment, String(Math.floor(Date.now() / 1000) - 60));
+    writeFileSync(staleStopMarker, String(Math.floor(Date.now() / 1000) - 60));
 
     const result = runStatusline(configDir);
     const output = result.stdout.toString();
@@ -330,6 +332,7 @@ describe("buddy statusline colors", () => {
     expect(output).not.toContain("stale reaction");
     expect(existsSync(staleReaction)).toBe(false);
     expect(existsSync(staleComment)).toBe(false);
+    expect(existsSync(staleStopMarker)).toBe(false);
     expect(output).not.toMatch(/^ *\.[-]{12,}\.$/m);
   });
 
