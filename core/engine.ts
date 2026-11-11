@@ -129,6 +129,8 @@ export interface BuddyBones {
   stats: BuddyStats;
   peak: StatName;
   dump: StatName;
+  /** Opt-in custom skin name (see custom-art/README.md). Never replaces `species`. */
+  skin?: string;
 }
 
 export interface Companion {
@@ -387,7 +389,7 @@ export function generatePersonality(bones: BuddyBones, userId: string): string {
 
 // ─── ASCII Art ──────────────────────────────────────────────────────────────
 
-const FACE_TEMPLATES: Record<Species, string> = {
+export const FACE_TEMPLATES: Record<Species, string> = {
   duck: "({E}>",
   goose: "({E}>",
   blob: "({E}{E})",
@@ -410,19 +412,36 @@ const FACE_TEMPLATES: Record<Species, string> = {
   pikachu: "({E}ω{E})",
 };
 
-export function renderFace(species: Species, eye: string): string {
-  return FACE_TEMPLATES[species].replace(/\{E\}/g, resolveEyeGlyph(eye));
+/**
+ * Render a species face. `faceTemplate` lets callers pass a resolved custom
+ * skin face in (core never loads skins itself).
+ */
+export function renderFace(species: Species, eye: string, faceTemplate?: string): string {
+  return (faceTemplate ?? FACE_TEMPLATES[species]).replace(/\{E\}/g, resolveEyeGlyph(eye));
 }
 
-export function renderBuddy(bones: BuddyBones): string {
-  const face = renderFace(bones.species, bones.eye);
+/**
+ * `faceTemplate` / `artFrame` let callers pass a resolved custom skin in.
+ * When `artFrame` (5 lines, `{E}` placeholders) is given it is drawn instead
+ * of the face, with the hat overlaid on a blank top line.
+ */
+export function renderBuddy(bones: BuddyBones, faceTemplate?: string, artFrame?: string[]): string {
+  const face = renderFace(bones.species, bones.eye, faceTemplate);
   const hat = HAT_ART[bones.hat];
   const shiny = bones.shiny ? "\u2728 " : "";
   const stars = RARITY_STARS[bones.rarity];
 
   const lines: string[] = [];
-  if (hat) lines.push(hat);
-  lines.push(`  ${face}`);
+  if (artFrame) {
+    const eye = resolveEyeGlyph(bones.eye);
+    const art = artFrame.map((l) => l.replace(/\{E\}/g, eye));
+    if (hat && !art[0].trim()) art[0] = hat;
+    else if (hat) lines.push(hat);
+    lines.push(...art.filter((l) => l.trim() !== ""));
+  } else {
+    if (hat) lines.push(hat);
+    lines.push(`  ${face}`);
+  }
   lines.push("");
   lines.push(`${shiny}${bones.rarity} ${bones.species} ${stars}`);
   lines.push("");

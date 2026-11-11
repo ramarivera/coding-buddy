@@ -486,9 +486,20 @@ function deriveCompactFrames(fullFrames: string[]): string[] {
 
 function deriveMinimalFrames(bones: BuddyBones, eye: string): string[] {
   const { renderFace } = require("../core/engine.ts") as typeof CoreEngine;
-  const face = renderFace(bones.species, eye);
+  const { skinFor } = require("./custom-art.ts") as typeof import("./custom-art.ts");
+  const face = renderFace(bones.species, eye, skinFor(bones)?.face);
   return Array.from({ length: 4 }, () => face);
 }
+// Omitted `muted` keeps the current status-line mute instead of silently
+// unmuting on unrelated writes (e.g. `bun run skin`).
+function readMuted(): boolean {
+  try {
+    return JSON.parse(readFileSync(STATUS_FILE(), "utf8")).muted === true;
+  } catch {
+    return false;
+  }
+}
+
 export function writeStatusState(
   companion: Companion,
   reaction?: string,
@@ -540,12 +551,16 @@ export function writeStatusState(
     species: companion.bones.species,
     rarity: companion.bones.rarity,
     stars: RARITY_STARS[companion.bones.rarity],
-    face: renderFace(companion.bones.species, safeEye),
+    face: renderFace(
+      companion.bones.species,
+      safeEye,
+      (require("./custom-art.ts") as typeof import("./custom-art.ts")).skinFor(companion.bones)?.face,
+    ),
     eye: safeEye,
     shiny: companion.bones.shiny,
     hat: companion.bones.hat,
     reaction: "",
-    muted: muted ?? false,
+    muted: muted ?? readMuted(),
     achievement: achievement ?? "",
     achievementAt: achievement ? Date.now() : 0,
     frames,

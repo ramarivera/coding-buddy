@@ -12,6 +12,7 @@ import { HAT_ART } from "../core/art-data.ts";
 
 export { HAT_ART };
 import { getRarityColor } from "./theme.ts";
+import { skinFor } from "./custom-art.ts";
 
 // ─── Species art: 3 frames × 5 lines each ──────────────────────────────────
 
@@ -248,8 +249,17 @@ function dpad(s: string, targetW: number): string {
 }
 // ─── Render functions ───────────────────────────────────────────────────────
 
-export function getArtFrame(species: Species, eye: string, frame: number = 0): string[] {
-  const frames = SPECIES_ART[species];
+/**
+ * `skin` is an already-resolved custom skin (see server/custom-art.ts
+ * `skinFor`); it is ignored unless it was drawn for this species.
+ */
+export function getArtFrame(
+  species: Species,
+  eye: string,
+  frame: number = 0,
+  skin?: { species: Species; art: string[][] } | null,
+): string[] {
+  const frames = skin && skin.species === species ? skin.art : SPECIES_ART[species];
   const f = frames[frame % frames.length];
   const glyph = resolveEyeGlyph(eye);
   return f.map((line) => line.replace(/\{E\}/g, glyph));
@@ -270,8 +280,9 @@ export function getStatusFrames(bones: BuddyBones): {
   minimalFrames: string[];
   frameSequence: number[];
 } {
+  const skin = skinFor(bones);
   const resolveFrame = (frameIdx: number, eyeGlyph: string): string => {
-    const raw = SPECIES_ART[bones.species][frameIdx];
+    const raw = (skin?.art ?? SPECIES_ART[bones.species])[frameIdx];
     const art = raw.map((line) => line.replace(/\{E\}/g, eyeGlyph));
     const hatLine = HAT_ART[bones.hat];
     if (hatLine && !art[0].trim()) {
@@ -307,7 +318,7 @@ export function getStatusFrames(bones: BuddyBones): {
   return {
     frames,
     compactFrames: deriveCompactFrames(frames),
-    minimalFrames: Array.from({ length: frames.length }, () => renderFace(bones.species, eye)),
+    minimalFrames: Array.from({ length: frames.length }, () => renderFace(bones.species, eye, skin?.face)),
     frameSequence: [...STATUS_FRAME_SEQUENCE],
   };
 }
@@ -323,7 +334,7 @@ export function renderCompanionCard(
   const color = getRarityColor(bones.rarity);
   const stars = RARITY_STARS[bones.rarity];
   const shiny = bones.shiny ? `${SHINY_COLOR}\u2728 ${NC}` : "";
-  const art = getArtFrame(bones.species, bones.eye, frame);
+  const art = getArtFrame(bones.species, bones.eye, frame, skinFor(bones));
   applyHat(bones.species, bones.hat, art);
 
   // Build the card
@@ -433,7 +444,7 @@ export function renderCompanionCardMarkdown(
   const dot = RARITY_DOT[bones.rarity];
   const stars = RARITY_STARS[bones.rarity];
   const shiny = bones.shiny ? " \u2728" : "";
-  const art = getArtFrame(bones.species, bones.eye, frame);
+  const art = getArtFrame(bones.species, bones.eye, frame, skinFor(bones));
   applyHat(bones.species, bones.hat, art);
 
   // Strip empty lines from art for cleaner rendering
@@ -494,7 +505,10 @@ export function renderStatusLine(
   name: string,
   reaction?: string,
 ): string {
-  const face = SPECIES_ART[bones.species][0][2]?.replace(/\{E\}/g, resolveEyeGlyph(bones.eye)).trim() || "(?)";
+  const skin = skinFor(bones);
+  const face =
+    (skin?.art ?? SPECIES_ART[bones.species])[0][2]?.replace(/\{E\}/g, resolveEyeGlyph(bones.eye)).trim() ||
+    renderFace(bones.species, bones.eye, skin?.face);
   const color = getRarityColor(bones.rarity);
   const stars = RARITY_STARS[bones.rarity];
   const shiny = bones.shiny ? "\u2728" : "";

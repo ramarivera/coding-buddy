@@ -22,6 +22,7 @@
     "hunt": "bun run cli/hunt.ts",
     "install-buddy": "bun run cli/install.ts",
     "show": "bun run cli/show.ts",
+    "skin": "bun run cli/skin.ts",
     "doctor": "bun run cli/doctor.ts",
     "test-statusline": "bun run cli/test-statusline.ts",
     "backup": "bun run cli/backup.ts",
@@ -52,6 +53,7 @@
     "hooks/",
     "statusline/",
     "scripts/",
+    "custom-art/",
     ".claude-plugin/",
     "!**/*.test.ts"
   ],
