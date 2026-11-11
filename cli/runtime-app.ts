@@ -96,9 +96,36 @@ export function installRuntimeAppAtomically(
     rmSync(stagingDir, { recursive: true, force: true });
     throw error;
   }
-  rmSync(appDir, { recursive: true, force: true });
-  renameSync(stagingDir, appDir);
+  promoteStagedApp(stagingDir, appDir);
   return appDir;
+}
+
+const PROMOTE_ATTEMPTS = 3;
+
+/**
+ * Swap the staged app into place. Another installer can recreate `appDir`
+ * between the remove and the rename, which makes the rename fail, so retry.
+ * If it still fails and a complete app is in place, the other installer won:
+ * keep its copy. The staging directory is removed on every path.
+ */
+export function promoteStagedApp(
+  stagingDir: string,
+  appDir: string,
+  rename: (from: string, to: string) => void = renameSync,
+): void {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < PROMOTE_ATTEMPTS; attempt++) {
+    try {
+      rmSync(appDir, { recursive: true, force: true });
+      rename(stagingDir, appDir);
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  rmSync(stagingDir, { recursive: true, force: true });
+  if (existsSync(stableRuntimePaths(appDir).mcpServer)) return;
+  throw lastError;
 }
 
 /**

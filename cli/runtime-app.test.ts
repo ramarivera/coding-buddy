@@ -1,11 +1,21 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+  existsSync,
+} from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 import { execFileSync } from "child_process";
 import {
   copyRuntimeApp,
   installRuntimeAppAtomically,
+  promoteStagedApp,
   redactSecrets,
   stableRuntimeAppDir,
   stableRuntimePaths,
@@ -86,10 +96,16 @@ describe("stable runtime app", () => {
     "the packed tarball carries the repo lockfile as runtime.bun.lock",
     () => {
       const repo = join(import.meta.dir, "..");
-      const out = mkdtempSync(join(tmpdir(), "coding-buddy-pack-"));
-      temporaryDirectories.push(out);
+      // Pack an isolated copy so prepack and postpack never touch the checkout.
+      const copy = mkdtempSync(join(tmpdir(), "coding-buddy-pack-"));
+      temporaryDirectories.push(copy);
+      for (const file of ["package.json", "bun.lock"]) {
+        writeFileSync(join(copy, file), readFileSync(join(repo, file)));
+      }
+      const out = join(copy, "out");
+      mkdirSync(out);
 
-      execFileSync("npm", ["pack", "--pack-destination", out], { cwd: repo, stdio: "ignore" });
+      execFileSync("npm", ["pack", "--pack-destination", out], { cwd: copy, stdio: "ignore" });
       const tarball = join(out, readdirSync(out).find((name) => name.endsWith(".tgz")) ?? "");
       execFileSync("tar", ["-xzf", tarball, "-C", out, "package/runtime.bun.lock"]);
 
@@ -97,7 +113,7 @@ describe("stable runtime app", () => {
         readFileSync(join(repo, "bun.lock"), "utf8"),
       );
       // postpack removes the copy, so a checkout never carries a stale one.
-      expect(existsSync(join(repo, "runtime.bun.lock"))).toBe(false);
+      expect(existsSync(join(copy, "runtime.bun.lock"))).toBe(false);
     },
     60_000,
   );
@@ -182,6 +198,59 @@ describe("stable runtime app", () => {
 
     expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("v1");
     expect(readdirSync(stateDir).filter((name) => name.startsWith(STAGING_PREFIX))).toEqual([]);
+  });
+
+  function stagedApp(): { stateDir: string; staging: string; appDir: string } {
+    const root = runtimeSource();
+    const stateDir = join(root, "state");
+    const staging = join(stateDir, `${STAGING_PREFIX}test`);
+    mkdirSync(join(staging, "server"), { recursive: true });
+    writeFileSync(join(staging, "server", "index.ts"), "mine");
+    return { stateDir, staging, appDir: stableRuntimeAppDir(stateDir) };
+  }
+
+  test("promotion retries when another installer recreates the app mid-swap", () => {
+    const { staging, appDir } = stagedApp();
+    let calls = 0;
+
+    promoteStagedApp(staging, appDir, (from, to) => {
+      calls += 1;
+      if (calls === 1) {
+        // Another installer lands between our remove and our rename.
+        mkdirSync(join(to, "server"), { recursive: true });
+        writeFileSync(join(to, "server", "index.ts"), "theirs");
+        throw Object.assign(new Error("ENOTEMPTY"), { code: "ENOTEMPTY" });
+      }
+      renameSync(from, to);
+    });
+
+    expect(calls).toBe(2);
+    expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("mine");
+    expect(existsSync(staging)).toBe(false);
+  });
+
+  test("promotion keeps a complete app from another installer and cleans its staging", () => {
+    const { staging, appDir } = stagedApp();
+
+    promoteStagedApp(staging, appDir, (_from, to) => {
+      mkdirSync(join(to, "server"), { recursive: true });
+      writeFileSync(join(to, "server", "index.ts"), "theirs");
+      throw Object.assign(new Error("ENOTEMPTY"), { code: "ENOTEMPTY" });
+    });
+
+    expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("theirs");
+    expect(existsSync(staging)).toBe(false);
+  });
+
+  test("promotion fails loudly, without leaving staging, when no app ends up in place", () => {
+    const { staging, appDir } = stagedApp();
+
+    expect(() =>
+      promoteStagedApp(staging, appDir, () => {
+        throw new Error("EACCES");
+      }),
+    ).toThrow("EACCES");
+    expect(existsSync(staging)).toBe(false);
   });
 });
 
