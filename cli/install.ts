@@ -7,7 +7,7 @@
  * ~/.claude/ layout when the env var is unset.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, cpSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from "fs";
 import { execFileSync, execSync } from "child_process";
 import { resolve, dirname, join } from "path";
 
@@ -22,7 +22,7 @@ import {
 } from "../server/path.ts";
 import { loadCompanion, saveCompanion, resolveUserId, writeStatusState } from "../server/state.ts";
 import { generateFallbackName } from "../core/reactions.ts"
-import { copyRuntimeApp, stableRuntimePaths } from "./runtime-app.ts";
+import { copyRuntimeApp, renderInstalledSkill, stableRuntimePaths } from "./runtime-app.ts";
 
 /** Recognise any buddy-owned hook command, however it is pathed. */
 function isBuddyHookCommand(command: unknown): boolean {
@@ -151,10 +151,11 @@ function installMcp(appDir: string) {
 
 // ─── Step 2: Install skill ──────────────────────────────────────────────────
 
-function installSkill() {
+function installSkill(appDir: string) {
   const srcSkill = join(PROJECT_ROOT, "skills", "buddy", "SKILL.md");
   mkdirSync(BUDDY_DIR, { recursive: true });
-  cpSync(srcSkill, join(BUDDY_DIR, "SKILL.md"), { force: true });
+  const skill = renderInstalledSkill(readFileSync(srcSkill, "utf8"), appDir);
+  writeFileSync(join(BUDDY_DIR, "SKILL.md"), skill);
   ok(`Skill installed: ${join(BUDDY_DIR, "SKILL.md")}`);
 }
 
@@ -334,7 +335,7 @@ const settings = loadSettings();
 const appDir = installRuntimeApp();
 
 installMcp(appDir);
-installSkill();
+installSkill(appDir);
 
 stripLegacyPopupHooks(settings);
 installStatusLine(settings, appDir);

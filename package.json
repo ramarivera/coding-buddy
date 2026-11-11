@@ -22,6 +22,7 @@
     "hunt": "bun run cli/hunt.ts",
     "install-buddy": "bun run cli/install.ts",
     "show": "bun run cli/show.ts",
+    "buddy": "bun run cli/buddy.ts",
     "doctor": "bun run cli/doctor.ts",
     "test-statusline": "bun run cli/test-statusline.ts",
     "backup": "bun run cli/backup.ts",

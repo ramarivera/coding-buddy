@@ -11,6 +11,9 @@ export const RUNTIME_DIRECTORIES = [
 
 export const RUNTIME_FILES = ["package.json", "bun.lock"] as const;
 
+/** CLI entry points the /buddy skill runs; they import only core/ and server/. */
+export const RUNTIME_CLI_FILES = ["cli/buddy.ts", "cli/pick.ts"] as const;
+
 export function stableRuntimeAppDir(stateDir: string): string {
   return join(stateDir, "app");
 }
@@ -22,6 +25,8 @@ export function stableRuntimePaths(appDir: string) {
     statusline: join(appDir, "statusline", "buddy-status.sh"),
     combinedStatusline: join(appDir, "statusline", "combined-status.sh"),
     hooks: join(appDir, "hooks"),
+    dispatcher: join(appDir, "cli", "buddy.ts"),
+    picker: join(appDir, "cli", "pick.ts"),
   };
 }
 
@@ -45,5 +50,23 @@ export function copyRuntimeApp(sourceRoot: string, stateDir: string): string {
     if (existsSync(source)) cpSync(source, join(appDir, file), { force: true });
   }
 
+  mkdirSync(join(appDir, "cli"), { recursive: true });
+  for (const file of RUNTIME_CLI_FILES) {
+    const source = join(sourceRoot, file);
+    if (!existsSync(source)) throw new Error(`Missing runtime file: ${source}`);
+    cpSync(source, join(appDir, file), { force: true });
+  }
+
   return appDir;
+}
+
+/**
+ * Point a manually installed SKILL.md at the stable runtime copy. Plugin
+ * installs get ${CLAUDE_PLUGIN_ROOT} from Claude Code; the manual install has
+ * none, and the git checkout may be deleted later, so use the app directory.
+ * The path lands inside a double-quoted shell string, so escape \ " $ `.
+ */
+export function renderInstalledSkill(skill: string, appDir: string): string {
+  const shellRoot = appDir.replace(/[\\"$`]/g, "\\$&");
+  return skill.replaceAll("${CLAUDE_PLUGIN_ROOT}", () => shellRoot);
 }
