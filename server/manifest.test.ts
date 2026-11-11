@@ -34,6 +34,24 @@ describe("shipped plugin manifests", () => {
     }
   });
 
+  test("hooks/hooks.json: every hook command has a 15s timeout", () => {
+    const manifest = JSON.parse(
+      readFileSync(join(REPO_ROOT, "hooks", "hooks.json"), "utf8"),
+    );
+
+    const timeouts: unknown[] = [];
+    for (const hookType of Object.keys(manifest.hooks ?? {})) {
+      for (const entry of manifest.hooks[hookType]) {
+        for (const hook of entry.hooks ?? []) {
+          if (hook.type === "command") timeouts.push(hook.timeout);
+        }
+      }
+    }
+
+    expect(timeouts.length).toBeGreaterThan(0);
+    for (const timeout of timeouts) expect(timeout).toBe(15);
+  });
+
   test(".claude-plugin/plugin.json: MCP server command resolves plugin-root-absolute", () => {
     const manifest = JSON.parse(
       readFileSync(join(REPO_ROOT, ".claude-plugin", "plugin.json"), "utf8"),

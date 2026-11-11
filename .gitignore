@@ -32,9 +32,15 @@ Thumbs.db
 coverage/
 .nyc_output/
 
+# Worktrees
+.worktrees/
+
 # Local / Python dev
 .envrc
 .python-version
 main.py
 pyproject.toml
 uv.lock
+
+# Generated VHS render workspace (committed goldens live in scripts/ci/goldens/)
+scripts/ci/vhs-out/

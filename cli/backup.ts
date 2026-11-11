@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * claude-buddy backup — snapshot all claude-buddy related state
+ * coding-buddy backup — snapshot all coding-buddy related state
  *
  * Usage:
  *   bun run backup                 Create a new snapshot
@@ -150,7 +150,7 @@ function cmdList() {
     info(`Run '${BOLD}bun run backup${NC}' to create one.`);
     return;
   }
-  console.log(`\n${BOLD}claude-buddy backups${NC}\n`);
+  console.log(`\n${BOLD}coding-buddy backups${NC}\n`);
   for (const ts of backups) {
     const manifestPath = join(BACKUPS_DIR, ts, "manifest.json");
     const manifest = tryRead(manifestPath);
@@ -266,7 +266,7 @@ const arg = process.argv[3];
 switch (action) {
   case "create":
   case undefined: {
-    console.log(`\n${BOLD}Creating claude-buddy backup...${NC}\n`);
+    console.log(`\n${BOLD}Creating coding-buddy backup...${NC}\n`);
     const ts = createBackup();
     console.log(`\n${GREEN}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}`);
     console.log(`${GREEN}  Backup created: ${ts}${NC}`);
@@ -319,7 +319,7 @@ switch (action) {
   case "--help":
   case "-h":
     console.log(`
-${BOLD}claude-buddy backup${NC} — snapshot and restore all claude-buddy state
+${BOLD}coding-buddy backup${NC} — snapshot and restore all coding-buddy state
 
 ${BOLD}Commands:${NC}
   bun run backup                 Create a new snapshot

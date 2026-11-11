@@ -1,13 +1,22 @@
 {
-  "name": "claude-buddy",
-  "version": "0.5.2",
-  "description": "Permanent coding companion for Claude Code — survives any update (MVP)",
+  "name": "@ramarivera/coding-buddy",
+  "version": "0.9.4",
+  "description": "Persistent coding companion for Claude Code, Pi, and Oh My Pi",
   "type": "module",
+  "omp": {
+    "extensions": [
+      "./adapters/omp/index.ts"
+    ]
+  },
+  "pi": {
+    "extensions": [
+      "./adapters/pi/index.ts"
+    ]
+  },
   "bin": {
-    "claude-buddy": "./cli/index.ts"
+    "coding-buddy": "cli/index.ts"
   },
   "scripts": {
-    "postinstall": "node scripts/postinstall.cjs",
     "server": "bun run server/index.ts",
     "pick": "bun run cli/pick.ts",
     "hunt": "bun run cli/hunt.ts",
@@ -26,9 +35,17 @@
     "tui": "bun run cli/tui.tsx",
     "test": "bun test",
     "typecheck": "tsc --noEmit",
-    "gen:emoji-widths": "bun run scripts/gen-emoji-widths.ts"
+    "gen:emoji-widths": "bun run scripts/gen-emoji-widths.ts",
+    "sync-version": "bun run scripts/sync-version.ts",
+    "version": "bun run sync-version && git add .claude-plugin",
+    "ci:statusline": "bash scripts/ci/check-statusline.sh",
+    "ci:vhs:render": "bash scripts/ci/render-vhs-goldens.sh",
+    "ci:vhs:update": "bash scripts/ci/render-vhs-goldens.sh --update",
+    "ci:vhs:check": "bash scripts/ci/check-vhs-goldens.sh"
   },
   "files": [
+    "core/",
+    "adapters/",
     "server/",
     "cli/",
     "skills/",
@@ -39,18 +56,24 @@
     "!**/*.test.ts"
   ],
   "keywords": [
+    "coding-buddy",
     "claude-code",
+    "pi",
+    "oh-my-pi",
+    "omp",
     "buddy",
     "companion",
     "mcp",
     "terminal-pet",
-    "tamagotchi"
+    "tamagotchi",
+    "pi-package",
+    "omp-extension"
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/1270011/claude-buddy.git"
+    "url": "git+https://github.com/ramarivera/coding-buddy.git"
   },
-  "homepage": "https://github.com/1270011/claude-buddy#readme",
+  "homepage": "https://github.com/ramarivera/coding-buddy#readme",
   "license": "MIT",
   "dependencies": {
     "@homebridge/node-pty-prebuilt-multiarch": "^0.13.1",
@@ -58,9 +81,15 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "ink": "^7.0.0",
+    "pino": "^10.3.1",
     "react": "^19.2.5"
   },
   "devDependencies": {
+    "@mariozechner/pi-coding-agent": "0.66.1",
+    "@oh-my-pi/pi-agent-core": "17.0.9",
+    "@oh-my-pi/pi-ai": "17.0.9",
+    "@oh-my-pi/pi-coding-agent": "17.0.9",
+    "@oh-my-pi/pi-catalog": "17.0.9",
     "@types/react": "^19.2.14",
     "bun-types": "^1.3.11",
     "tsx": "^4.21.0",
@@ -68,5 +97,28 @@
   },
   "trustedDependencies": [
     "@homebridge/node-pty-prebuilt-multiarch"
-  ]
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "0.66.1",
+    "@oh-my-pi/pi-agent-core": "17.0.9",
+    "@oh-my-pi/pi-ai": "17.0.9",
+    "@oh-my-pi/pi-coding-agent": "17.0.9"
+  },
+  "peerDependenciesMeta": {
+    "@mariozechner/pi-coding-agent": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-agent-core": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-ai": {
+      "optional": true
+    },
+    "@oh-my-pi/pi-coding-agent": {
+      "optional": true
+    }
+  }
 }

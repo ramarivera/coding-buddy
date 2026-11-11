@@ -1,4 +1,4 @@
-# Testing claude-buddy
+# Testing coding-buddy
 
 This document lists exactly what the test suite covers. For a walk-through of
 the contribution workflow (DCO, CI, commit style), see
@@ -74,7 +74,7 @@ produce the same companion.
 
 These pin the exact bones output for three fixed user IDs. If any of these
 fail, the generation algorithm has changed in a way that would give every
-existing user a different buddy — which is the one thing claude-buddy
+existing user a different buddy — which is the one thing coding-buddy
 promises never to do. Stop and ask "did I mean to do that?" before
 updating the snapshots.
 

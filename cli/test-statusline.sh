@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# claude-buddy diagnostic test status line
+# coding-buddy diagnostic test status line
 # Outputs multiple padding strategies + multi-line check + width check
 
 cat > /dev/null  # drain stdin
@@ -12,7 +12,7 @@ GREEN=$'\033[38;2;78;186;101m'
 BLUE=$'\033[38;2;87;105;247m'
 
 # Header
-echo "${DIM}--- claude-buddy statusline test ---${NC}"
+echo "${DIM}--- coding-buddy statusline test ---${NC}"
 
 # Multi-line check
 echo "LINE_1_top"

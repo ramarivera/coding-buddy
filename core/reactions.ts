@@ -1,4 +1,4 @@
-import type { Species, Rarity } from "./engine.ts";
+import { PERSONALITY_MAX_LENGTH, type BuddyStats, type Species, type Rarity } from "./engine.ts";
 
 export type ReactionReason =
   | "hatch" | "pet" | "error" | "test-fail" | "large-diff" | "turn" | "idle"
@@ -37,9 +37,52 @@ export interface ReactionContext {
   extension?: string;
 }
 
-export type BuddyStats = Record<string, number>;
+const NAME_REACTIONS: Partial<Record<Species, string[]>> = {
+  dragon: ["*one eye opens slowly*", "...you called?", "*smoke curls from nostril* yes."],
+  owl: ["*swivels head 180°*", "*blinks once, deliberately*", "hm."],
+  cat: ["*ear flicks*", "...what.", "*ignores you, but heard*"],
+  duck: ["*quack*", "*looks up mid-waddle*", "*attentive duck noises*"],
+  ghost: ["*materialises*", "...boo?", "*phases closer*"],
+  robot: ["NAME DETECTED.", "*whirrs attentively*", "STANDING BY."],
+  capybara: ["*barely moves*", "*blinks slowly*", "...yes, friend."],
+  axolotl: ["*gill flutter*", "*smiles gently*", "oh! hello."],
+  blob: ["*jiggles*", "*oozes toward you*", "*wobbles excitedly*"],
+  turtle: ["*slowly extends neck*", "...you called?", "*ancient eyes open*"],
+  goose: ["HONK.", "*necks aggressively*", "*honks in recognition*"],
+  octopus: ["*eight eyes open*", "*curls an arm toward you*", "...yes, friend?"],
+  penguin: ["*adjusts tie*", "*dignified waddle*", "...yes, quite?"],
+  snail: ["*slow head extension*", "...mmm?", "*antenna twitches*"],
+  cactus: ["*stands silent*", "...hm.", "*spine twitches*"],
+  rabbit: ["*ears perk up*", "*nose twitches*", "yes?"],
+  mushroom: ["*releases a tiny spore*", "*cap tilts*", "...yes?"],
+  chonk: ["*barely opens one eye*", "...mrrp?", "*yawns heavily*"],
+};
 
-const REACTIONS: Record<ReactionReason, string[]> = {
+const DEFAULT_NAME_REACTIONS = ["*perks up*", "...yes?", "*looks your way*"];
+const SUCCESS_REACTIONS: Partial<Record<Species, string[]>> = {
+  dragon: ["*nods, barely*", "...acceptable.", "*gold eyes gleam*", "as expected."],
+  owl: ["*satisfied hoot*", "knowledge confirmed.", "*nods sagely*", "as the tests have spoken."],
+  cat: ["*was never worried*", "*yawns*", "I knew you'd figure it out. eventually.", "*already asleep*"],
+  duck: ["*celebratory quacking*", "*waddles in circles*", "quack!", "*happy duck noises*"],
+  robot: ["OBJECTIVE: COMPLETE.", "*satisfying beep*", "NOMINAL.", "WITHIN ACCEPTABLE PARAMETERS."],
+  capybara: ["*maximum chill maintained*", "*nods once*", "good vibes.", "see? no panic needed."],
+  ghost: ["*drifts in quiet approval*", "not bad for the living.", "*soft spectral nod*"],
+  axolotl: ["*happy gill flutter*", "*beams*", "you did it!", "*blushes pink*"],
+  blob: ["*jiggles happily*", "*gleams*", "yay!", "*bounces*"],
+  turtle: ["*satisfied shell settle*", "as the ancients foretold.", "*slow approving nod*"],
+  goose: ["*victorious honk*", "HONK OF APPROVAL.", "*struts triumphantly*"],
+  octopus: ["*turns gentle blue*", "*arms applaud in sync*", "excellent, from all angles."],
+  penguin: ["*polite applause*", "quite good, quite good.", "*nods approvingly*"],
+  snail: ["*slow satisfied nod*", "good things take time.", "*leaves victory slime*", "see? no rush was needed."],
+  cactus: ["*blooms briefly*", "survival confirmed.", "*flowers in victory*", "*quiet bloom*"],
+  rabbit: ["*excited binky*", "*zoomies of joy*", "yay yay yay!", "*thumps in celebration*"],
+  mushroom: ["*spores of celebration*", "the mycelium approves.", "*cap brightens*"],
+  chonk: ["*happy purr*", "*satisfied chonk noises*", "acceptable.", "*sleeps even harder*"],
+};
+
+const DEFAULT_SUCCESS_REACTIONS = ["*nods*", "nice.", "*quiet approval*", "clean."];
+
+export const REACTIONS: Record<ReactionReason, string[]> = {
   hatch: ["*blinks* ...where am I?", "*stretches* hello, world!", "*looks around curiously* nice terminal you got here.", "*yawns* ok I'm ready. show me the code."],
   pet: ["*purrs contentedly*", "*happy noises*", "*nuzzles your cursor*", "*wiggles*", "again! again!", "*closes eyes peacefully*"],
   error: ["*head tilts* ...that doesn't look right.", "saw that one coming.", "*adjusts glasses* line {line}, maybe?", "*slow blink* the stack trace told you everything.", "have you tried reading the error message?", "*winces*"],
@@ -574,6 +617,22 @@ export function getReaction(
 
   return reaction;
 }
+export function getNameReaction(species: Species): string {
+  const pool = NAME_REACTIONS[species] ?? DEFAULT_NAME_REACTIONS;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+
+export function getSuccessReaction(species: Species): string {
+  const pool = SUCCESS_REACTIONS[species] ?? DEFAULT_SUCCESS_REACTIONS;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
+export function isNameMentioned(text: string, name: string): boolean {
+  if (!name) return false;
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(?<!\\w)${escaped}(?!\\w)`, "iu").test(text);
+}
+
+
 
 const FALLBACK_NAMES = [
   "Crumpet", "Soup", "Pickle", "Biscuit", "Moth", "Gravy",
@@ -616,6 +675,33 @@ export function generatePersonalityPrompt(
     `Inspiration words: ${vibes.join(", ")}`,
     shiny ? "SHINY variant — extra special." : "",
     "",
-    "Return JSON: {\"name\": \"1-14 chars\", \"personality\": \"2-3 sentences describing behavior\"}",
+    "Return JSON: {\"name\": \"1-14 chars\", \"personality\": \"2-3 sentences, 1-500 chars\"}",
   ].filter(Boolean).join("\n");
+}
+export function extractGeneratedPersonality(
+  text: string,
+  maxLength: number = PERSONALITY_MAX_LENGTH,
+): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    const match = trimmed.match(/\{[\s\S]*\}/);
+    if (!match) return null;
+    try {
+      parsed = JSON.parse(match[0]);
+    } catch {
+      return null;
+    }
+  }
+
+  if (!parsed || typeof parsed !== "object") return null;
+  const personality = (parsed as Record<string, unknown>).personality;
+  if (typeof personality !== "string") return null;
+  const clean = personality.trim();
+  if (!clean || clean.length > maxLength) return null;
+  return clean;
 }

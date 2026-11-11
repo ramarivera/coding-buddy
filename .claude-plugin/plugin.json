@@ -1,15 +1,19 @@
 {
-    "name": "claude-buddy",
-    "version": "0.3.0",
-    "description": "Permanent coding companion for Claude Code \u2014 survives any update. MCP-based terminal pet with ASCII art, stats, reactions, and personality.",
+    "name": "coding-buddy",
+    "version": "0.9.4",
+    "description": "Persistent coding companion for Claude Code, Pi, and Oh My Pi. MCP-based terminal pet with ASCII art, stats, reactions, and personality.",
     "author": {
-        "name": "1270011"
+        "name": "ramarivera"
     },
     "license": "MIT",
-    "repository": "https://github.com/1270011/claude-buddy",
-    "homepage": "https://github.com/1270011/claude-buddy#readme",
+    "repository": "https://github.com/ramarivera/coding-buddy",
+    "homepage": "https://github.com/ramarivera/coding-buddy#readme",
     "keywords": [
+        "coding-buddy",
         "claude-code",
+        "pi",
+        "oh-my-pi",
+        "omp",
         "buddy",
         "companion",
         "mcp",

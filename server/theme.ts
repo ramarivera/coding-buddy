@@ -6,7 +6,7 @@
  * for the bash scripts.
  */
 
-import type { Rarity } from "./engine";
+import type { Rarity } from "../core/engine.ts"
 import { loadConfig } from "./state";
 
 export type Theme = "dark" | "light";

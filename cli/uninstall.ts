@@ -1,5 +1,5 @@
 /**
- * claude-buddy uninstall — remove all integrations
+ * coding-buddy uninstall — remove all integrations
  */
 
 import { readFileSync, writeFileSync, existsSync, rmSync, readdirSync } from "fs";
@@ -23,7 +23,7 @@ const SKILL_DIR = claudeSkillDir("buddy");
 const STATE_DIR = buddyStateDir();
 const CLAUDE_JSON_PATH = claudeUserConfigPath();
 
-console.log("\nclaude-buddy uninstall\n");
+console.log("\ncoding-buddy uninstall\n");
 
 // Stop all popup reopen loops and close any running popup
 try {
@@ -80,7 +80,7 @@ try {
     if (settings.hooks?.[hookType]) {
       const before = settings.hooks[hookType].length;
       settings.hooks[hookType] = settings.hooks[hookType].filter(
-        (h: any) => !h.hooks?.some((hh: any) => hh.command?.includes("claude-buddy")),
+        (h: any) => !h.hooks?.some((hh: any) => hh.command?.includes("coding-buddy") || hh.command?.includes("claude-buddy")),
       );
       if (settings.hooks[hookType].length < before) {
         ok(`${hookType} hooks removed`);

@@ -1,5 +1,5 @@
 /**
- * claude-buddy hunt — brute-force search for a specific buddy
+ * coding-buddy hunt — brute-force search for a specific buddy
  *
  * Rules:
  *   - Asks for a name before saving
@@ -7,10 +7,8 @@
  *   - Appends to the manifest — never overwrites an existing slot
  */
 
-import {
-  searchBuddy, renderBuddy, SPECIES, RARITIES, STAT_NAMES,
-  type Species, type Rarity, type StatName, type SearchCriteria,
-} from "../server/engine.ts";
+import { searchBuddy, renderBuddy, SPECIES, RARITIES, STAT_NAMES,
+type Species, type Rarity, type StatName, type SearchCriteria, } from "../core/engine.ts"
 import {
   saveCompanionSlot, saveActiveSlot, writeStatusState,
   slugify, unusedName, listCompanionSlots,
@@ -47,7 +45,7 @@ function pickFromList<T extends string>(label: string, items: readonly T[]): Pro
 async function main() {
   console.log(`
 ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}
-${CYAN}║${NC}  ${BOLD}claude-buddy hunt${NC} — find your perfect companion          ${CYAN}║${NC}
+${CYAN}║${NC}  ${BOLD}coding-buddy hunt${NC} — find your perfect companion          ${CYAN}║${NC}
 ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}
 `);
 

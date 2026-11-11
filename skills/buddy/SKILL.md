@@ -7,11 +7,11 @@ allowed-tools: mcp__claude_buddy__*, Bash
 
 # Buddy — Your Coding Companion
 
-Handle the user's `/buddy` command using the claude-buddy MCP tools.
+Handle the user's `/buddy` command using the coding-buddy MCP tools.
 
 ## Fallback: MCP Tools Unavailable
 
-**Before routing any command, check whether `mcp__claude_buddy__*` tools are registered in this session.** If they are NOT — Claude Code was unable to start the claude-buddy MCP server — do not attempt to call any buddy tool. The tool calls will fail with an unhelpful "tool not found" error. Instead, run this diagnostic and report the result to the user so they can fix the underlying cause:
+**Before routing any command, check whether `mcp__claude_buddy__*` tools are registered in this session.** If they are NOT — Claude Code was unable to start the coding-buddy MCP server — do not attempt to call any buddy tool. The tool calls will fail with an unhelpful "tool not found" error. Instead, run this diagnostic and report the result to the user so they can fix the underlying cause:
 
 1. Check bun availability:
    ```bash
@@ -21,13 +21,13 @@ Handle the user's `/buddy` command using the claude-buddy MCP tools.
 
 2. If bun IS present, run the launcher directly to capture whatever error it emits. The launcher path depends on which marketplace installed the plugin; locate it first:
    ```bash
-   find ~/.claude/plugins/cache -name mcp-launcher.sh -path '*claude-buddy*' 2>/dev/null
+   find ~/.claude/plugins/cache -name mcp-launcher.sh -path '*coding-buddy*' 2>/dev/null
    ```
    Then execute the first result with stdin closed so it exits cleanly:
    ```bash
    <launcher-path> < /dev/null; echo "exit=$?"
    ```
-   Report the stdout/stderr and exit code verbatim. Common causes: missing `bun`, corrupted plugin cache (suggest `claude plugin uninstall claude-buddy@claude-buddy && claude plugin install claude-buddy@claude-buddy`), or a `bun`-level error loading `server/index.ts`.
+   Common causes: missing `bun`, corrupted plugin cache (suggest `claude plugin uninstall coding-buddy@coding-buddy && claude plugin install coding-buddy@coding-buddy`), or a `bun`-level error loading `server/index.ts`.
 
 3. If `$CLAUDE_CONFIG_DIR` is set in the environment, use that directory instead of `~/.claude` when searching for the launcher.
 
@@ -53,7 +53,7 @@ Based on `$ARGUMENTS`:
 | `save [slot]`            | Call `buddy_save` with optional slot name                                                    |
 | `list`                   | Call `buddy_list`                                                                            |
 | `dismiss <slot>`         | Call `buddy_dismiss` with the slot name                                                      |
-| `pick`                   | Tell user to run `! bun run pick` from the claude-buddy directory (launches interactive TUI) |
+| `pick`                   | Tell user to run `! bun run pick` from the coding-buddy directory (launches interactive TUI) |
 | `frequency`              | Call `buddy_frequency` with no args (show current)                                           |
 | `frequency <seconds>`    | Call `buddy_frequency` with cooldown=seconds                                                 |
 | `style`                  | Call `buddy_style` with no args (show current)                                               |
@@ -86,16 +86,16 @@ The MCP tools return pre-formatted ASCII art with ANSI colors, box-drawing chara
 
 **Just output the raw text content from the tool result. Nothing else.** The ASCII art IS the response.
 
-If the user mentions the buddy's name in normal conversation, call `buddy_react` with reason "turn" and display the result verbatim.
+If the user mentions the buddy's name in normal conversation, call `buddy_react` with reason "turn". Do NOT echo or quote the tool result — the reaction reaches the user only via the statusline speech bubble.
 
 ## Uninstall Orchestration
 
 When the user invokes `/buddy uninstall`, run this sequence **in order** — do not skip steps, do not ask for confirmation between steps:
 
 1. Call the MCP tool `buddy_uninstall`. Display its output verbatim.
-2. Run via Bash tool: `claude plugin uninstall claude-buddy@claude-buddy`
-3. Run via Bash tool: `claude plugin marketplace remove claude-buddy`
-4. Run via Bash tool: `rm -rf ~/.claude/plugins/cache/claude-buddy`
+2. Run via Bash tool: `claude plugin uninstall coding-buddy@coding-buddy`
+3. Run via Bash tool: `claude plugin marketplace remove coding-buddy`
+4. Run via Bash tool: `rm -rf ~/.claude/plugins/cache/coding-buddy`
 5. Tell the user: uninstall is complete; companion data is kept at `~/.claude-buddy/`; restart Claude Code to release the plugin.
 
 If any Bash step fails (non-zero exit), report the error but continue with the remaining steps — each step is independent and always-safe to run.

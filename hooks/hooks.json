@@ -6,7 +6,8 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/react.sh"
+                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/react.sh",
+                        "timeout": 15
                     }
                 ]
             },
@@ -15,7 +16,8 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/file-type-react.sh"
+                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/file-type-react.sh",
+                        "timeout": 15
                     }
                 ]
             }
@@ -25,7 +27,17 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/buddy-comment.sh"
+                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/buddy-comment.sh",
+                        "timeout": 15
+                    }
+                ]
+            },
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/suggest.sh",
+                        "timeout": 15
                     }
                 ]
             }
@@ -35,7 +47,8 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/name-react.sh"
+                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/name-react.sh",
+                        "timeout": 15
                     }
                 ]
             },
@@ -43,7 +56,8 @@
                 "hooks": [
                     {
                         "type": "command",
-                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/mood-react.sh"
+                        "command": "${CLAUDE_PLUGIN_ROOT}/hooks/mood-react.sh",
+                        "timeout": 15
                     }
                 ]
             }

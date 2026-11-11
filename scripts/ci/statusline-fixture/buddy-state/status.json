@@ -1,0 +1,39 @@
+{
+  "name": "Cobalt",
+  "species": "pikachu",
+  "rarity": "uncommon",
+  "stars": "★★",
+  "face": "(@ω@)",
+  "eye": "@",
+  "shiny": false,
+  "hat": "wizard",
+  "reaction": "*does a little dance*",
+  "muted": false,
+  "achievement": "",
+  "frames": [
+    "    /^\\     \n   /\\_/\\   \n  (@ @)  \n   (  ω )   \n   (__)    ",
+    "    /^\\     \n   /\\_/\\   \n   (- -)   \n   (  ω )   \n   (__)    ",
+    "    /^\\     \n   /\\_/\\   \n  (@ @)  \n   (  ~ )   \n   (__)    ",
+    "    /^\\     \n   /\\_/\\   \n  (- -)  \n   (  ω )   \n   (__)    "
+  ],
+  "frameSequence": [
+    0,
+    0,
+    0,
+    0,
+    1,
+    0,
+    0,
+    0,
+    3,
+    0,
+    0,
+    2,
+    0,
+    0,
+    0
+  ],
+  "level": 1,
+  "xp": 0,
+  "mood": "tired"
+}

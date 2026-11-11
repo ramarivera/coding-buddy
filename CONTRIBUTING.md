@@ -1,4 +1,4 @@
-# Contributing to claude-buddy
+# Contributing to coding-buddy
 
 Thanks for wanting to help bring buddies back to life!
 
@@ -8,8 +8,8 @@ you need: setup, DCO sign-off, tests, and what happens when you open a PR.
 ## Quick Setup
 
 ```bash
-git clone https://github.com/1270011/claude-buddy.git
-cd claude-buddy
+git clone https://github.com/ramarivera/coding-buddy.git coding-buddy
+cd coding-buddy
 bun install
 bun run install-buddy
 ```

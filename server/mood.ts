@@ -9,7 +9,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from "fs";
 import { join } from "path";
 import { buddyStateDir } from "./path";
-import type { StatName } from "./engine";
+import type { StatName } from "../core/engine.ts"
 
 // ─── Mood types ───────────────────────────────────────────────────────────────
 

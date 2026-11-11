@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 
 import { buddyStateDir } from "../server/path.ts";
 import { getArtFrame, HAT_ART } from "../server/art.ts";
-import type { Species, Eye, Hat } from "../server/engine.ts";
+import type { Species, Eye, Hat } from "../core/engine.ts"
 import { getBiome, listBiomes } from "./biomes.ts";
 import xtermPkg from "@xterm/headless";
 import serializePkg from "@xterm/addon-serialize";

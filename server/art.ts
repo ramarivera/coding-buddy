@@ -6,7 +6,11 @@
  * {E} is replaced with the eye character at render time.
  */
 
-import type { Species, Eye, Hat, Rarity, StatName, BuddyBones } from "./engine.ts";
+import { renderFace, resolveEyeGlyph, type Species, type Hat, type Rarity, type StatName, type BuddyBones } from "../core/engine.ts"
+export { resolveEyeGlyph };
+import { HAT_ART } from "../core/art-data.ts";
+
+export { HAT_ART };
 import { getRarityColor } from "./theme.ts";
 
 // ─── Species art: 3 frames × 5 lines each ──────────────────────────────────
@@ -114,7 +118,7 @@ export const SPECIES_ART: Record<Species, string[][]> = {
      "\\ {E}' '{E} /", 
      " \\ } { /",
      " ≈(° °)≈",
-     "  \x1b[38;2;255;120;0m//|\\\\\x1b[0m"],
+     "  \x1b[38;2;255;120;0m/\x1b[0m'\x1b[38;2;255;120;0m|\x1b[0m'\x1b[38;2;255;120;0m\\\x1b[0m"],
     ["}       {", 
      "|\\^```^/|",
      "\\ {E}' '{E} /", 
@@ -129,18 +133,6 @@ export const SPECIES_ART: Record<Species, string[][]> = {
   ],
 };
 
-// ─── Hat art ────────────────────────────────────────────────────────────────
-
-export const HAT_ART: Record<Hat, string> = {
-  none:      "",
-  crown:     "   \\^^^/    ",
-  tophat:    "   [___]    ",
-  propeller: "    -+-     ",
-  halo:      "   (   )    ",
-  wizard:    "    /^\\     ",
-  beanie:    "   (___)    ",
-  tinyduck:  "    ,>      ",
-};
 
 // Wyvern line 0 is `}       {` (7 inner chars between horns).
 // These replace that line so the hat sits between the horns.
@@ -181,10 +173,38 @@ export const RARITY_STARS: Record<Rarity, string> = {
 
 function stripAnsi(s: string): string { return s.replace(/\x1b\[[^m]*m/g, ""); }
 
+const SGR_TOKEN_RE = /\x1b\[[^m]*m|./gu;
+
+/** Truncate a string to terminal columns without splitting wide characters. */
+export function truncateDisplayWidth(
+  value: string,
+  maxWidth: number,
+  suffix = "\u2026",
+): string {
+  if (maxWidth <= 0) return "";
+  if (displayWidth(value) <= maxWidth) return value;
+
+  const suffixWidth = displayWidth(suffix);
+  const contentWidth = Math.max(0, maxWidth - suffixWidth);
+  let result = "";
+  for (const token of value.match(SGR_TOKEN_RE) ?? []) {
+    if (token.startsWith("\x1b[")) {
+      result += token;
+      continue;
+    }
+    // Measure the candidate, not the codepoint in isolation: VS16 upgrades
+    // the preceding symbol and must be accounted for before accepting it.
+    if (displayWidth(result + token) > contentWidth) break;
+    result += token;
+  }
+  return `${result}${suffix}${NC}`;
+}
+
 // Unicode property escapes (ES2018) are the source of truth for which
 // codepoints terminals render 2 cols wide. The statusline (bash) can't use
-// these directly, so scripts/gen-emoji-widths.ts exports the subset that
-// bash needs into statusline/emoji-widths.data — regenerate on version bumps.
+// these directly, so scripts/gen-emoji-widths.ts exports the complete
+// Emoji_Presentation table into statusline/emoji-widths.data — regenerate on
+// Unicode/runtime version bumps.
 const EMOJI_PRES_RE = /\p{Emoji_Presentation}/u;
 const EMOJI_RE = /\p{Emoji}/u;
 
@@ -226,13 +246,13 @@ function dpad(s: string, targetW: number): string {
   const w = displayWidth(s);
   return w < targetW ? s + " ".repeat(targetW - w) : s;
 }
-
 // ─── Render functions ───────────────────────────────────────────────────────
 
-export function getArtFrame(species: Species, eye: Eye, frame: number = 0): string[] {
+export function getArtFrame(species: Species, eye: string, frame: number = 0): string[] {
   const frames = SPECIES_ART[species];
   const f = frames[frame % frames.length];
-  return f.map((line) => line.replace(/\{E\}/g, eye));
+  const glyph = resolveEyeGlyph(eye);
+  return f.map((line) => line.replace(/\{E\}/g, glyph));
 }
 
 // Original 15-tick cycle [0,0,0,0,1,0,0,0,-1,0,0,2,0,0,0]: -1 (blink) becomes
@@ -246,11 +266,13 @@ export const STATUS_FRAME_SEQUENCE: readonly number[] = [
 // \n-joined 5-line string (one jq call + mapfile in bash).
 export function getStatusFrames(bones: BuddyBones): {
   frames: string[];
+  compactFrames: string[];
+  minimalFrames: string[];
   frameSequence: number[];
 } {
-  const resolveFrame = (frameIdx: number, eye: string): string => {
+  const resolveFrame = (frameIdx: number, eyeGlyph: string): string => {
     const raw = SPECIES_ART[bones.species][frameIdx];
-    const art = raw.map((line) => line.replace(/\{E\}/g, eye));
+    const art = raw.map((line) => line.replace(/\{E\}/g, eyeGlyph));
     const hatLine = HAT_ART[bones.hat];
     if (hatLine && !art[0].trim()) {
       art[0] = hatLine;
@@ -258,13 +280,34 @@ export function getStatusFrames(bones: BuddyBones): {
     return art.join("\n");
   };
 
+  // Compact: keep the first three non-empty rows of each full frame. This
+  // preserves a hat if it occupies the top row, otherwise it drops the blank
+  // placeholder and shows the face/body.
+  const deriveCompactFrames = (fullFrames: string[]): string[] =>
+    fullFrames.map((body) => {
+      const lines = body.split("\n");
+      const selected: string[] = [];
+      for (const line of lines) {
+        if (selected.length >= 3) break;
+        if (line.trim() !== "") selected.push(line);
+      }
+      while (selected.length < 3) selected.push("");
+      return selected.join("\n");
+    });
+
+  // Sanitize once at the boundary. Blink uses a literal "-" eye, which is
+  // intentionally outside EYES and must not pass through resolveEyeGlyph.
+  const eye = resolveEyeGlyph(bones.eye);
+  const frames = [
+    resolveFrame(0, eye),
+    resolveFrame(1, eye),
+    resolveFrame(2, eye),
+    resolveFrame(0, "-"),
+  ];
   return {
-    frames: [
-      resolveFrame(0, bones.eye),
-      resolveFrame(1, bones.eye),
-      resolveFrame(2, bones.eye),
-      resolveFrame(0, "-"),
-    ],
+    frames,
+    compactFrames: deriveCompactFrames(frames),
+    minimalFrames: Array.from({ length: frames.length }, () => renderFace(bones.species, eye)),
     frameSequence: [...STATUS_FRAME_SEQUENCE],
   };
 }
@@ -336,7 +379,7 @@ export function renderCompanionCard(
   if (reaction) {
     lines.push(`${color}\u251c${"╌".repeat(W - 2)}\u2524${NC}`);
     const maxMsg = innerW - 3; // "💬 " prefix (💬 = 2 cols + space)
-    const msg = displayWidth(reaction) > maxMsg ? reaction.slice(0, maxMsg - 1) + "\u2026" : reaction;
+    const msg = truncateDisplayWidth(reaction, maxMsg);
     const msgPad = Math.max(0, innerW - displayWidth(msg) - 3);
     lines.push(`${color}\u2502${NC}  \ud83d\udcac ${msg}${" ".repeat(msgPad)}${color}\u2502${NC}`);
   }
@@ -451,7 +494,7 @@ export function renderStatusLine(
   name: string,
   reaction?: string,
 ): string {
-  const face = SPECIES_ART[bones.species][0][2]?.replace(/\{E\}/g, bones.eye).trim() || "(?)";
+  const face = SPECIES_ART[bones.species][0][2]?.replace(/\{E\}/g, resolveEyeGlyph(bones.eye)).trim() || "(?)";
   const color = getRarityColor(bones.rarity);
   const stars = RARITY_STARS[bones.rarity];
   const shiny = bones.shiny ? "\u2728" : "";
