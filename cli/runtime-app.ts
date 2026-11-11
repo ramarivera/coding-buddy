@@ -101,30 +101,61 @@ export function installRuntimeAppAtomically(
 }
 
 const PROMOTE_ATTEMPTS = 3;
+export const PREVIOUS_PREFIX = "app.previous-";
 
 /**
- * Swap the staged app into place. Another installer can recreate `appDir`
- * between the remove and the rename, which makes the rename fail, so retry.
- * If it still fails and a complete app is in place, the other installer won:
- * keep its copy. The staging directory is removed on every path.
+ * Swap the staged app into place without ever leaving the user with no app.
+ *
+ * The live app is moved aside, not deleted, and is moved back if the staged
+ * app cannot take its place. Another installer can recreate `appDir` in the
+ * middle of the swap, so the swap retries; if it still cannot rename and a
+ * complete app from that other installer is in place, that app is kept.
+ * Staging and moved-aside copies are removed on every path.
  */
 export function promoteStagedApp(
   stagingDir: string,
   appDir: string,
   rename: (from: string, to: string) => void = renameSync,
 ): void {
+  const backups: string[] = [];
   let lastError: unknown;
+  let restoredPrevious = false;
+
   for (let attempt = 0; attempt < PROMOTE_ATTEMPTS; attempt++) {
+    const backup = `${appDir}.previous-${process.pid}-${randomUUID().slice(0, 8)}`;
+    let movedAside = false;
+    restoredPrevious = false;
     try {
-      rmSync(appDir, { recursive: true, force: true });
+      if (existsSync(appDir)) {
+        backups.push(backup);
+        rename(appDir, backup);
+        movedAside = true;
+      }
       rename(stagingDir, appDir);
+      for (const dir of backups) rmSync(dir, { recursive: true, force: true });
       return;
     } catch (error) {
       lastError = error;
+      if (movedAside && !existsSync(appDir)) {
+        try {
+          rename(backup, appDir);
+          restoredPrevious = true;
+        } catch {
+          // Leave the moved-aside copy where it is; the error below names it.
+          backups.splice(backups.indexOf(backup), 1);
+          lastError = new Error(
+            `Could not install the new runtime app or put the previous one back. The previous app is at ${backup}.`,
+            { cause: error },
+          );
+        }
+      }
     }
   }
+
   rmSync(stagingDir, { recursive: true, force: true });
-  if (existsSync(stableRuntimePaths(appDir).mcpServer)) return;
+  for (const dir of backups) rmSync(dir, { recursive: true, force: true });
+  // Not our previous app, yet complete: another installer finished. Keep it.
+  if (!restoredPrevious && existsSync(stableRuntimePaths(appDir).mcpServer)) return;
   throw lastError;
 }
 

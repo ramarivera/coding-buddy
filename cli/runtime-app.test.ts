@@ -15,6 +15,7 @@ import { execFileSync } from "child_process";
 import {
   copyRuntimeApp,
   installRuntimeAppAtomically,
+  PREVIOUS_PREFIX,
   promoteStagedApp,
   redactSecrets,
   stableRuntimeAppDir,
@@ -209,13 +210,19 @@ describe("stable runtime app", () => {
     return { stateDir, staging, appDir: stableRuntimeAppDir(stateDir) };
   }
 
+  function leftovers(appDir: string): string[] {
+    return readdirSync(join(appDir, "..")).filter(
+      (name) => name.startsWith(STAGING_PREFIX) || name.startsWith(PREVIOUS_PREFIX),
+    );
+  }
+
   test("promotion retries when another installer recreates the app mid-swap", () => {
     const { staging, appDir } = stagedApp();
     let calls = 0;
 
     promoteStagedApp(staging, appDir, (from, to) => {
-      calls += 1;
-      if (calls === 1) {
+      if (from === staging) calls += 1;
+      if (from === staging && calls === 1) {
         // Another installer lands between our remove and our rename.
         mkdirSync(join(to, "server"), { recursive: true });
         writeFileSync(join(to, "server", "index.ts"), "theirs");
@@ -224,22 +231,40 @@ describe("stable runtime app", () => {
       renameSync(from, to);
     });
 
-    expect(calls).toBe(2);
     expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("mine");
     expect(existsSync(staging)).toBe(false);
+    expect(leftovers(appDir)).toEqual([]);
   });
 
   test("promotion keeps a complete app from another installer and cleans its staging", () => {
     const { staging, appDir } = stagedApp();
 
-    promoteStagedApp(staging, appDir, (_from, to) => {
+    promoteStagedApp(staging, appDir, (from, to) => {
+      if (from !== staging) return renameSync(from, to);
+      // Each time we try to move in, another installer has just landed its app.
       mkdirSync(join(to, "server"), { recursive: true });
       writeFileSync(join(to, "server", "index.ts"), "theirs");
       throw Object.assign(new Error("ENOTEMPTY"), { code: "ENOTEMPTY" });
     });
 
     expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("theirs");
-    expect(existsSync(staging)).toBe(false);
+    expect(leftovers(appDir)).toEqual([]);
+  });
+
+  test("promotion puts the previous app back when the new one cannot be moved in", () => {
+    const { staging, appDir } = stagedApp();
+    mkdirSync(join(appDir, "server"), { recursive: true });
+    writeFileSync(join(appDir, "server", "index.ts"), "previous");
+
+    expect(() =>
+      promoteStagedApp(staging, appDir, (from, to) => {
+        if (from === staging) throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+        renameSync(from, to);
+      }),
+    ).toThrow("EACCES");
+
+    expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("previous");
+    expect(leftovers(appDir)).toEqual([]);
   });
 
   test("promotion fails loudly, without leaving staging, when no app ends up in place", () => {
