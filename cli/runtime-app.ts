@@ -119,27 +119,31 @@ export function promoteStagedApp(
 ): void {
   const backups: string[] = [];
   let lastError: unknown;
-  let restoredPrevious = false;
+  // True only when our move-in failed because an app we did not put there was
+  // in the way: another installer finished between our two renames.
+  let displacedByOther = false;
 
   for (let attempt = 0; attempt < PROMOTE_ATTEMPTS; attempt++) {
     const backup = `${appDir}.previous-${process.pid}-${randomUUID().slice(0, 8)}`;
     let movedAside = false;
-    restoredPrevious = false;
+    let promoting = false;
+    displacedByOther = false;
     try {
       if (existsSync(appDir)) {
         backups.push(backup);
         rename(appDir, backup);
         movedAside = true;
       }
+      promoting = true;
       rename(stagingDir, appDir);
       for (const dir of backups) rmSync(dir, { recursive: true, force: true });
       return;
     } catch (error) {
       lastError = error;
+      displacedByOther = promoting && existsSync(appDir);
       if (movedAside && !existsSync(appDir)) {
         try {
           rename(backup, appDir);
-          restoredPrevious = true;
         } catch {
           // Leave the moved-aside copy where it is; the error below names it.
           backups.splice(backups.indexOf(backup), 1);
@@ -154,8 +158,9 @@ export function promoteStagedApp(
 
   rmSync(stagingDir, { recursive: true, force: true });
   for (const dir of backups) rmSync(dir, { recursive: true, force: true });
-  // Not our previous app, yet complete: another installer finished. Keep it.
-  if (!restoredPrevious && existsSync(stableRuntimePaths(appDir).mcpServer)) return;
+  // Another installer's complete app is in place: keep it. Every other
+  // failure, including never getting the old app out of the way, is an error.
+  if (displacedByOther && existsSync(stableRuntimePaths(appDir).mcpServer)) return;
   throw lastError;
 }
 
@@ -178,6 +183,7 @@ export function supportsTextLockfile(bunVersion: string): boolean {
  */
 export function redactSecrets(text: string): string {
   return text
+    .replace(/\b([a-z][a-z0-9+.-]*:\/\/)[^\s/@]+@/gi, "$1[redacted]@")
     .replace(/(_authToken|_auth|_password)\s*=\s*\S+/gi, "$1=[redacted]")
     .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/g, "$1 [redacted]")
     .replace(/\bnpm_[A-Za-z0-9]{20,}\b/g, "[redacted]");

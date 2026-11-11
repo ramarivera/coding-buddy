@@ -167,6 +167,7 @@ describe("stable runtime app", () => {
     const leaked = [
       "warn: //registry.npmjs.org/:_authToken=npm_abcdefghijklmnopqrstuvwxyz0123456789",
       "Authorization: Bearer abcdef1234567890",
+      "error: GET https://deploy:hunter2secret@registry.example.com/pkg - 401",
       "error: No version matching \"^7.29.14\" found",
     ].join("\n");
 
@@ -174,6 +175,8 @@ describe("stable runtime app", () => {
 
     expect(shown).not.toContain("npm_abcdefghijklmnopqrstuvwxyz0123456789");
     expect(shown).not.toContain("abcdef1234567890");
+    expect(shown).not.toContain("hunter2secret");
+    expect(shown).toContain("https://[redacted]@registry.example.com/pkg");
     expect(shown).toContain("_authToken=[redacted]");
     expect(shown).toContain("No version matching");
   });
@@ -262,6 +265,23 @@ describe("stable runtime app", () => {
         renameSync(from, to);
       }),
     ).toThrow("EACCES");
+
+    expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("previous");
+    expect(leftovers(appDir)).toEqual([]);
+  });
+
+  test("promotion fails when the old app cannot be moved out of the way", () => {
+    const { staging, appDir } = stagedApp();
+    mkdirSync(join(appDir, "server"), { recursive: true });
+    writeFileSync(join(appDir, "server", "index.ts"), "previous");
+
+    // The old app is complete and still in place, but that is not an upgrade.
+    expect(() =>
+      promoteStagedApp(staging, appDir, (from, to) => {
+        if (from === appDir) throw Object.assign(new Error("EBUSY"), { code: "EBUSY" });
+        renameSync(from, to);
+      }),
+    ).toThrow("EBUSY");
 
     expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("previous");
     expect(leftovers(appDir)).toEqual([]);
