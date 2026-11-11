@@ -11,6 +11,13 @@ export const RUNTIME_DIRECTORIES = [
 
 export const RUNTIME_FILES = ["package.json", "bun.lock"] as const;
 
+/**
+ * npm never packs a file named bun.lock, so the published tarball carries the
+ * lockfile as runtime.bun.lock (written by the prepack script). A git checkout
+ * has the real bun.lock instead.
+ */
+export const PACKED_LOCKFILE = "runtime.bun.lock";
+
 export function stableRuntimeAppDir(stateDir: string): string {
   return join(stateDir, "app");
 }
@@ -44,6 +51,10 @@ export function copyRuntimeApp(sourceRoot: string, stateDir: string): string {
     const source = join(sourceRoot, file);
     if (existsSync(source)) cpSync(source, join(appDir, file), { force: true });
   }
+
+  const packedLock = join(sourceRoot, PACKED_LOCKFILE);
+  const appLock = join(appDir, "bun.lock");
+  if (!existsSync(appLock) && existsSync(packedLock)) cpSync(packedLock, appLock);
 
   return appDir;
 }

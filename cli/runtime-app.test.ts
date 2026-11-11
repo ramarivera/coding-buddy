@@ -42,4 +42,41 @@ describe("stable runtime app", () => {
     expect(existsSync(stale)).toBe(false);
     expect(readFileSync(join(appDir, "statusline", "runtime.txt"), "utf8")).toBe("updated");
   });
+
+  function runtimeSource(): string {
+    const root = mkdtempSync(join(tmpdir(), "coding-buddy-runtime-app-"));
+    temporaryDirectories.push(root);
+    for (const directory of ["core", "server", "hooks", "statusline", "scripts"]) {
+      mkdirSync(join(root, directory), { recursive: true });
+    }
+    writeFileSync(join(root, "package.json"), "{\"name\":\"test\"}");
+    return root;
+  }
+
+  test("installs the packed lockfile as bun.lock when the tarball has no bun.lock", () => {
+    const root = runtimeSource();
+    writeFileSync(join(root, "runtime.bun.lock"), "packed");
+
+    const appDir = copyRuntimeApp(root, join(root, "state"));
+
+    expect(readFileSync(join(appDir, "bun.lock"), "utf8")).toBe("packed");
+  });
+
+  test("prefers a real bun.lock over the packed copy", () => {
+    const root = runtimeSource();
+    writeFileSync(join(root, "bun.lock"), "checkout");
+    writeFileSync(join(root, "runtime.bun.lock"), "packed");
+
+    const appDir = copyRuntimeApp(root, join(root, "state"));
+
+    expect(readFileSync(join(appDir, "bun.lock"), "utf8")).toBe("checkout");
+  });
+
+  test("the published package ships the lockfile under a name npm will pack", () => {
+    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"));
+
+    expect(pkg.files).toContain("runtime.bun.lock");
+    expect(pkg.files).not.toContain("bun.lock");
+    expect(pkg.scripts.prepack).toContain("runtime.bun.lock");
+  });
 });

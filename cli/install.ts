@@ -264,7 +264,18 @@ function installRuntimeApp(): string {
   const appDir = copyRuntimeApp(PROJECT_ROOT, buddyStateDir());
   const installArgs = ["install", "--production", "--ignore-scripts"];
   if (existsSync(join(appDir, "bun.lock"))) installArgs.push("--frozen-lockfile");
-  execFileSync("bun", installArgs, { cwd: appDir, stdio: "ignore" });
+  try {
+    execFileSync("bun", installArgs, { cwd: appDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+  } catch (error) {
+    // Show bun's own output: without it a dependency failure reads as a bare
+    // "Command failed" and the user cannot tell what broke.
+    const failure = error as { stdout?: string; stderr?: string };
+    const output = [failure.stdout, failure.stderr].filter(Boolean).join("\n").trim();
+    throw new Error(
+      `bun ${installArgs.join(" ")} failed in ${appDir}${output ? `:\n${output}` : ""}`,
+      { cause: error },
+    );
+  }
   ok(`Stable runtime installed: ${appDir}`);
   return appDir;
 }
