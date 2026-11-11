@@ -22,7 +22,7 @@ import {
 } from "../server/path.ts";
 import { loadCompanion, saveCompanion, resolveUserId, writeStatusState } from "../server/state.ts";
 import { generateFallbackName } from "../core/reactions.ts"
-import { copyRuntimeApp, stableRuntimePaths } from "./runtime-app.ts";
+import { installRuntimeAppAtomically, stableRuntimePaths } from "./runtime-app.ts";
 
 /** Recognise any buddy-owned hook command, however it is pathed. */
 function isBuddyHookCommand(command: unknown): boolean {
@@ -261,21 +261,22 @@ function installHooks(settings: Record<string, any>, appDir: string) {
 }
 
 function installRuntimeApp(): string {
-  const appDir = copyRuntimeApp(PROJECT_ROOT, buddyStateDir());
-  const installArgs = ["install", "--production", "--ignore-scripts"];
-  if (existsSync(join(appDir, "bun.lock"))) installArgs.push("--frozen-lockfile");
-  try {
-    execFileSync("bun", installArgs, { cwd: appDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
-  } catch (error) {
-    // Show bun's own output: without it a dependency failure reads as a bare
-    // "Command failed" and the user cannot tell what broke.
-    const failure = error as { stdout?: string; stderr?: string };
-    const output = [failure.stdout, failure.stderr].filter(Boolean).join("\n").trim();
-    throw new Error(
-      `bun ${installArgs.join(" ")} failed in ${appDir}${output ? `:\n${output}` : ""}`,
-      { cause: error },
-    );
-  }
+  const appDir = installRuntimeAppAtomically(PROJECT_ROOT, buddyStateDir(), (stagingDir) => {
+    const installArgs = ["install", "--production", "--ignore-scripts"];
+    if (existsSync(join(stagingDir, "bun.lock"))) installArgs.push("--frozen-lockfile");
+    try {
+      execFileSync("bun", installArgs, { cwd: stagingDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+    } catch (error) {
+      // Show bun's own output: without it a dependency failure reads as a bare
+      // "Command failed" and the user cannot tell what broke.
+      const failure = error as { stdout?: string; stderr?: string };
+      const output = [failure.stdout, failure.stderr].filter(Boolean).join("\n").trim();
+      throw new Error(
+        `bun ${installArgs.join(" ")} failed${output ? `:\n${output}` : ""}\nThe previous runtime app, if any, was left in place.`,
+        { cause: error },
+      );
+    }
+  });
   ok(`Stable runtime installed: ${appDir}`);
   return appDir;
 }

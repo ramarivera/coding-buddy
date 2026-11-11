@@ -307,7 +307,7 @@ server.tool(
       .string()
       .optional()
       .describe(
-        "Required. The buddy's comment, written in-character (1 short sentence, max 150 chars; longer text is shortened). Use *asterisks* for actions.",
+        "The buddy's comment, written in-character (1 short sentence, max 150 chars; longer text is shortened). Use *asterisks* for actions. Always send it: a call with no comment returns an error.",
       ),
     reaction: z
       .string()

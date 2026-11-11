@@ -2,7 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
-import { copyRuntimeApp, stableRuntimeAppDir, stableRuntimePaths } from "./runtime-app.ts";
+import {
+  copyRuntimeApp,
+  installRuntimeAppAtomically,
+  stableRuntimeAppDir,
+  stableRuntimePaths,
+  stagingRuntimeAppDir,
+} from "./runtime-app.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -78,5 +84,41 @@ describe("stable runtime app", () => {
     expect(pkg.files).toContain("runtime.bun.lock");
     expect(pkg.files).not.toContain("bun.lock");
     expect(pkg.scripts.prepack).toContain("runtime.bun.lock");
+  });
+
+  test("a failed dependency install keeps the previous runtime app", () => {
+    const root = runtimeSource();
+    const stateDir = join(root, "state");
+    writeFileSync(join(root, "server", "index.ts"), "v1");
+    installRuntimeAppAtomically(root, stateDir, () => {});
+    writeFileSync(join(root, "server", "index.ts"), "v2");
+
+    expect(() =>
+      installRuntimeAppAtomically(root, stateDir, () => {
+        throw new Error("bun install failed");
+      }),
+    ).toThrow("bun install failed");
+
+    const appDir = stableRuntimeAppDir(stateDir);
+    expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("v1");
+    expect(existsSync(stagingRuntimeAppDir(stateDir))).toBe(false);
+  });
+
+  test("a successful install swaps in the new app with what the install step added", () => {
+    const root = runtimeSource();
+    const stateDir = join(root, "state");
+    writeFileSync(join(root, "server", "index.ts"), "v1");
+    installRuntimeAppAtomically(root, stateDir, () => {});
+    writeFileSync(join(root, "server", "index.ts"), "v2");
+
+    const appDir = installRuntimeAppAtomically(root, stateDir, (stagingDir) => {
+      mkdirSync(join(stagingDir, "node_modules"));
+      writeFileSync(join(stagingDir, "node_modules", "dep.txt"), "installed");
+    });
+
+    expect(appDir).toBe(stableRuntimeAppDir(stateDir));
+    expect(readFileSync(join(appDir, "server", "index.ts"), "utf8")).toBe("v2");
+    expect(readFileSync(join(appDir, "node_modules", "dep.txt"), "utf8")).toBe("installed");
+    expect(existsSync(stagingRuntimeAppDir(stateDir))).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import { cpSync, existsSync, mkdirSync, rmSync } from "fs";
+import { cpSync, existsSync, mkdirSync, rmSync, renameSync } from "fs";
 import { join } from "path";
 
 export const RUNTIME_DIRECTORIES = [
@@ -32,12 +32,21 @@ export function stableRuntimePaths(appDir: string) {
   };
 }
 
+export function stagingRuntimeAppDir(stateDir: string): string {
+  return join(stateDir, "app.staging");
+}
+
 /**
- * Replace the stable runtime copy. The app directory is owned by the
- * installer, so removing it first also removes files deleted by an upgrade.
+ * Write a fresh runtime copy into `targetDir`, the stable app directory by
+ * default. The directory is owned by the installer, so removing it first also
+ * removes files deleted by an upgrade.
  */
-export function copyRuntimeApp(sourceRoot: string, stateDir: string): string {
-  const appDir = stableRuntimeAppDir(stateDir);
+export function copyRuntimeApp(
+  sourceRoot: string,
+  stateDir: string,
+  targetDir: string = stableRuntimeAppDir(stateDir),
+): string {
+  const appDir = targetDir;
   rmSync(appDir, { recursive: true, force: true });
   mkdirSync(appDir, { recursive: true });
 
@@ -56,5 +65,30 @@ export function copyRuntimeApp(sourceRoot: string, stateDir: string): string {
   const appLock = join(appDir, "bun.lock");
   if (!existsSync(appLock) && existsSync(packedLock)) cpSync(packedLock, appLock);
 
+  return appDir;
+}
+
+/**
+ * Build the runtime app next to the live one and swap it in only after
+ * `prepare` (the dependency install) succeeds. A failed install then leaves
+ * the previous working app, and the MCP registration that points at it,
+ * untouched.
+ */
+export function installRuntimeAppAtomically(
+  sourceRoot: string,
+  stateDir: string,
+  prepare: (stagingDir: string) => void,
+): string {
+  const appDir = stableRuntimeAppDir(stateDir);
+  const stagingDir = stagingRuntimeAppDir(stateDir);
+  try {
+    copyRuntimeApp(sourceRoot, stateDir, stagingDir);
+    prepare(stagingDir);
+  } catch (error) {
+    rmSync(stagingDir, { recursive: true, force: true });
+    throw error;
+  }
+  rmSync(appDir, { recursive: true, force: true });
+  renameSync(stagingDir, appDir);
   return appDir;
 }
