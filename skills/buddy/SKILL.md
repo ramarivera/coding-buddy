@@ -98,9 +98,9 @@ These tools return plain text, not ASCII art: `buddy_help`, `buddy_mute`, `buddy
 
 You MAY add a one-sentence confirmation before or after if it clarifies what changed, but do NOT paraphrase the text itself.
 
-**Hard floor — never break:** a reply that contains no visible text of its own is broken. A `buddy_react` call is not visible output — it reaches the user only through the statusline bubble — so a turn whose only content is a tool call renders blank. If you have nothing else to say, the tool result text alone is the correct reply.
+**Hard floor for the plain-text commands above:** a reply that contains no visible text of its own is broken. A `buddy_react` call is not visible output — it reaches the user only through the statusline bubble — so a turn whose only content is a tool call renders blank. If you have nothing else to say, the tool result text alone is the correct reply.
 
-**Self-check before sending:** does your visible reply contain the tool's result text? If not, paste it in. The end-of-turn `buddy_react` call is _additional_, never _instead of_.
+**Self-check for the plain-text commands above:** does your visible reply contain that command's result text? If not, paste it in. Never paste the result of `buddy_react`. The end-of-turn `buddy_react` call is _additional_, never _instead of_.
 
 ### Reactions — statusline only
 
