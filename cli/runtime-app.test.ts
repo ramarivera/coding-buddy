@@ -1,13 +1,16 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "fs";
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
+import { execFileSync } from "child_process";
 import {
   copyRuntimeApp,
   installRuntimeAppAtomically,
+  redactSecrets,
   stableRuntimeAppDir,
   stableRuntimePaths,
   stagingRuntimeAppDir,
+  supportsTextLockfile,
 } from "./runtime-app.ts";
 
 const temporaryDirectories: string[] = [];
@@ -78,13 +81,25 @@ describe("stable runtime app", () => {
     expect(readFileSync(join(appDir, "bun.lock"), "utf8")).toBe("checkout");
   });
 
-  test("the published package ships the lockfile under a name npm will pack", () => {
-    const pkg = JSON.parse(readFileSync(join(import.meta.dir, "..", "package.json"), "utf8"));
+  test.skipIf(!Bun.which("npm") || !Bun.which("tar"))(
+    "the packed tarball carries the repo lockfile as runtime.bun.lock",
+    () => {
+      const repo = join(import.meta.dir, "..");
+      const out = mkdtempSync(join(tmpdir(), "coding-buddy-pack-"));
+      temporaryDirectories.push(out);
 
-    expect(pkg.files).toContain("runtime.bun.lock");
-    expect(pkg.files).not.toContain("bun.lock");
-    expect(pkg.scripts.prepack).toContain("runtime.bun.lock");
-  });
+      execFileSync("npm", ["pack", "--pack-destination", out], { cwd: repo, stdio: "ignore" });
+      const tarball = join(out, readdirSync(out).find((name) => name.endsWith(".tgz")) ?? "");
+      execFileSync("tar", ["-xzf", tarball, "-C", out, "package/runtime.bun.lock"]);
+
+      expect(readFileSync(join(out, "package", "runtime.bun.lock"), "utf8")).toBe(
+        readFileSync(join(repo, "bun.lock"), "utf8"),
+      );
+      // postpack removes the copy, so a checkout never carries a stale one.
+      expect(existsSync(join(repo, "runtime.bun.lock"))).toBe(false);
+    },
+    60_000,
+  );
 
   test("a failed dependency install keeps the previous runtime app", () => {
     const root = runtimeSource();
@@ -121,4 +136,28 @@ describe("stable runtime app", () => {
     expect(readFileSync(join(appDir, "node_modules", "dep.txt"), "utf8")).toBe("installed");
     expect(existsSync(stagingRuntimeAppDir(stateDir))).toBe(false);
   });
+
+  test("only Bun 1.2 and newer gets the text lockfile", () => {
+    expect(supportsTextLockfile("1.3.9")).toBe(true);
+    expect(supportsTextLockfile("1.2.0")).toBe(true);
+    expect(supportsTextLockfile("2.0.0")).toBe(true);
+    expect(supportsTextLockfile("1.1.45")).toBe(false);
+    expect(supportsTextLockfile("not a version")).toBe(false);
+  });
+
+  test("redacts registry credentials from tool output", () => {
+    const leaked = [
+      "warn: //registry.npmjs.org/:_authToken=npm_abcdefghijklmnopqrstuvwxyz0123456789",
+      "Authorization: Bearer abcdef1234567890",
+      "error: No version matching \"^7.29.14\" found",
+    ].join("\n");
+
+    const shown = redactSecrets(leaked);
+
+    expect(shown).not.toContain("npm_abcdefghijklmnopqrstuvwxyz0123456789");
+    expect(shown).not.toContain("abcdef1234567890");
+    expect(shown).toContain("_authToken=[redacted]");
+    expect(shown).toContain("No version matching");
+  });
 });
+

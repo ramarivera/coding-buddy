@@ -92,3 +92,28 @@ export function installRuntimeAppAtomically(
   renameSync(stagingDir, appDir);
   return appDir;
 }
+
+/**
+ * bun.lock is Bun's text lockfile, which Bun reads from 1.2.0 on. Older Bun
+ * rejects it under --frozen-lockfile, so the installer drops the lockfile for
+ * those versions and installs unpinned, as it did before the lockfile shipped.
+ */
+export function supportsTextLockfile(bunVersion: string): boolean {
+  const match = /^(\d+)\.(\d+)\./.exec(bunVersion.trim());
+  if (!match) return false;
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  return major > 1 || (major === 1 && minor >= 2);
+}
+
+/**
+ * Strip registry credentials from tool output before it is shown. Bun before
+ * 1.1.34 could echo an .npmrc token in a warning.
+ */
+export function redactSecrets(text: string): string {
+  return text
+    .replace(/(_authToken|_auth|_password)\s*=\s*\S+/gi, "$1=[redacted]")
+    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/g, "$1 [redacted]")
+    .replace(/\bnpm_[A-Za-z0-9]{20,}\b/g, "[redacted]");
+}
+
