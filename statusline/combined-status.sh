@@ -59,20 +59,27 @@ BUDDY_OUTPUT=$(printf '%s' "$STDIN_DATA" | "$BUDDY_SCRIPT" 2>/dev/null)
 # No buddy output → exit silently (muted, no state, etc.)
 [ -z "$BUDDY_OUTPUT" ] && exit 0
 
-# No rate-limit data → pass buddy output through unchanged
-HAS_DATA=$(python3 -c "
-import json, sys
-d = json.loads('''$STATS_JSON''' or '{}')
-print(d.get('has_data', False))
-" 2>/dev/null)
-
-if [ "$HAS_DATA" != "True" ]; then
-    printf '%s\n' "$BUDDY_OUTPUT"
-    exit 0
-fi
+# No rate-limit data → pass buddy output through unchanged. has_data was
+# already computed by the first python3 call above; a plain string match
+# on its json.dumps output avoids spawning a second python3 just to read it
+# back (each spawn has real cost, see the notes in buddy-status.sh).
+case "$STATS_JSON" in
+    *'"has_data": true'*) ;;
+    *)
+        printf '%s\n' "$BUDDY_OUTPUT"
+        exit 0
+        ;;
+esac
 
 # ── Merge stat lines into buddy output ──────────────────────────────────────
-printf '%s\n' "$BUDDY_OUTPUT" | STATS_JSON="$STATS_JSON" python3 -c "
+# python3 on Windows writes stdout in text mode, translating \n to \r\n --
+# strip that back out, same as the CR-corruption fix in buddy-status.sh.
+# PYTHONIOENCODING=utf-8: this script prints the buddy's raw art/name/stars
+# straight through, and when python3's stdout isn't a real console (piped,
+# as it is here) it can fall back to the system ANSI codepage instead of
+# UTF-8 -- cp1252 on this Windows machine -- crashing on the first non-Latin
+# character (e.g. the rarity stars).
+printf '%s\n' "$BUDDY_OUTPUT" | STATS_JSON="$STATS_JSON" PYTHONIOENCODING=utf-8 python3 -c "
 import sys, json, os, re
 
 BRAILLE = '\u2800'
@@ -101,8 +108,8 @@ def fmt_stat(label, pct, reset):
     bar = build_bar(pct)
     bar_text = f'{DIM}{label}{NC} {c}{pct_str}{NC} {bar}'
     bar_width = 2 + 1 + 4 + 1 + 10
-    timer_text = f'   {c}↻{reset}{NC}'
-    timer_width = 3 + 1 + len(reset)
+    timer_text = f'   {c}↻ {reset}{NC}'
+    timer_width = 3 + 1 + 1 + len(reset)
     return (bar_text, bar_width), (timer_text, timer_width)
 
 try:
@@ -118,18 +125,33 @@ sess = fmt_stat('5h', stats.get('sess_pct'), stats.get('sess_reset', '--'))
 week = fmt_stat('7d', stats.get('week_pct'), stats.get('week_reset', '--'))
 stat_items = [sess[0], sess[1], week[0], week[1]]
 
+ERASE = '\033[2K'
+
 for i, line in enumerate(lines):
     si = i - center
-    if 0 <= si < 4 and line.startswith(BRAILLE):
+    # statusline_output_line prefixes every row with an erase-line sequence
+    # (see buddy-status.sh) so VS Code never leaves stale characters from a
+    # differently-shaped previous tick; strip it before looking at the pad
+    # character and put it back on print, whichever branch runs.
+    erase_prefix = ''
+    if line.startswith(ERASE):
+        erase_prefix = ERASE
+        line = line[len(ERASE):]
+    # buddy-status.sh's leading pad character is the Braille Blank on
+    # macOS/Linux, but a plain space on Windows/MSYS (Braille Blank renders
+    # double-width there) -- accept either and echo back whichever one was
+    # actually there instead of hardcoding BRAILLE.
+    lead = line[:1]
+    if 0 <= si < 4 and lead in (BRAILLE, ' '):
         stat_text, stat_width = stat_items[si]
-        after_braille = line[1:]
-        num_spaces = len(after_braille) - len(after_braille.lstrip(' '))
+        after_lead = line[1:]
+        num_spaces = len(after_lead) - len(after_lead.lstrip(' '))
         if num_spaces >= stat_width:
             remaining = ' ' * (num_spaces - stat_width)
-            rest = after_braille.lstrip(' ')
-            print(BRAILLE + stat_text + remaining + rest)
+            rest = after_lead.lstrip(' ')
+            print(erase_prefix + lead + stat_text + remaining + rest)
         else:
-            print(line)
+            print(erase_prefix + line)
     else:
-        print(line)
-"
+        print(erase_prefix + line)
+" | tr -d '\r'

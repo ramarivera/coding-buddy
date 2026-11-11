@@ -45,11 +45,11 @@ append_substatus() {
     fi
 
     [ -f "$config_file" ] || return 0
-    command=$(jq -r '.subStatusCommand // ""' "$config_file" 2>/dev/null)
+    command=$(_bt 3 jq -r '.subStatusCommand // ""' "$config_file" 2>/dev/null)
     [ -n "$command" ] || return 0
 
     refresh_seconds=15
-    configured_refresh_seconds=$(jq -r '.subStatusRefreshSeconds // empty' "$config_file" 2>/dev/null)
+    configured_refresh_seconds=$(_bt 3 jq -r '.subStatusRefreshSeconds // empty' "$config_file" 2>/dev/null)
     case "$configured_refresh_seconds" in
         ''|*[!0-9]*) ;;
         *) [ "$configured_refresh_seconds" -gt 0 ] && refresh_seconds="$configured_refresh_seconds" ;;

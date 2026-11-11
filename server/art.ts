@@ -171,9 +171,14 @@ export const RARITY_STARS: Record<Rarity, string> = {
 
 // ─── Display width helpers ──────────────────────────────────────────────────
 
-function stripAnsi(s: string): string { return s.replace(/\x1b\[[^m]*m/g, ""); }
+// Matches any CSI sequence (ESC [ params final-letter), not just SGR color
+// codes ending in "m" -- the statusline also emits \x1b[2K (erase line)
+// before each row, which this must treat as zero-width too.
+const ANSI_CSI_RE = /\x1b\[[0-9;]*[A-Za-z]/g;
 
-const SGR_TOKEN_RE = /\x1b\[[^m]*m|./gu;
+function stripAnsi(s: string): string { return s.replace(ANSI_CSI_RE, ""); }
+
+const SGR_TOKEN_RE = /\x1b\[[0-9;]*[A-Za-z]|./gu;
 
 /** Truncate a string to terminal columns without splitting wide characters. */
 export function truncateDisplayWidth(

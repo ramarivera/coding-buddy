@@ -22,19 +22,33 @@ ENV DEBIAN_FRONTEND=noninteractive \
     COLORTERM=truecolor \
     CI=
 
-# Pin exact Ubuntu 24.04 (noble) package versions so runner image drift does
-# not silently re-rasterize glyphs. Bump deliberately when re-baselining.
+# Pin exact Ubuntu 24.04 (noble) package versions for the packages that can
+# actually affect golden-image rendering: fonts, the Cairo/Pango/GTK stack
+# the headless browser uses to rasterize them, and ffmpeg/ttyd -- VHS's own
+# capture (ttyd) and frame-encoding (ffmpeg) pipeline, where a version float
+# could change encoder defaults or compression behavior and shift pixel
+# values even for identical input. Bump those deliberately when
+# re-baselining.
+#
+# Everything else below is plain CLI tooling with no rendering impact at all
+# (TLS certs, an HTTP client, an archiver, jq, python3) -- pinning those to
+# exact patch versions only pins this build to a specific moment of the
+# Ubuntu mirrors, which age out (a stale `curl` pin already broke every
+# build once the version it named left the noble mirrors). Version-less
+# installs for just these resolve to whatever noble currently ships.
 #
 # Includes Chromium shared libs for vhs/rod headless browser, plus the fonts
 # used by the tapes (DejaVu mono + Noto CJK/emoji).
 RUN apt-get update -qq \
  && apt-get install -y -qq --no-install-recommends \
-      ca-certificates=20260601~24.04.1 \
-      curl=8.5.0-2ubuntu10.11 \
-      xz-utils=5.6.1+really5.4.5-1ubuntu0.3 \
-      unzip=6.0-28ubuntu4.1 \
-      jq=1.7.1-3ubuntu0.24.04.2 \
-      python3=3.12.3-0ubuntu2.1 \
+      ca-certificates \
+      curl \
+      xz-utils \
+      unzip \
+      jq \
+      python3 \
+      findutils \
+      bash \
       ffmpeg=7:6.1.1-3ubuntu5 \
       ttyd=1.7.4-1build2 \
       fonts-dejavu-core=2.37-8 \
@@ -44,8 +58,6 @@ RUN apt-get update -qq \
       fonts-noto-cjk=1:20230817+repack1-3 \
       fonts-liberation=1:2.1.5-3 \
       fontconfig=2.15.0-1.1ubuntu2 \
-      findutils=4.9.0-5build1 \
-      bash=5.2.21-2ubuntu4 \
       libnss3=2:3.98-1ubuntu0.2 \
       libnspr4=2:4.35-1.1build1 \
       libatk1.0-0t64=2.52.0-1build1 \

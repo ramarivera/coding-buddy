@@ -36,6 +36,38 @@ esac
 
 [ "$BUDDY_SHELL" = "1" ] && exit 0
 
+# `timeout` isn't part of macOS's default BSD userland -- it only exists there
+# via Homebrew coreutils, installed as `gtimeout` so it doesn't collide with
+# any system tool. Detect what's actually available; every subprocess call
+# below goes through _bt so it degrades to running unguarded rather than
+# failing outright on a platform that doesn't have either.
+#
+# Windows also ships its own native timeout.exe (System32), unrelated to GNU
+# coreutils and with completely different syntax (`/t <seconds>`, and it
+# never runs a trailing command at all). If PATH happens to resolve `timeout`
+# to that one instead of Git Bash's coreutils build, every _bt call below
+# would silently do nothing useful -- the very first jq read would come back
+# empty, and the script exits immediately at the empty-NAME guard, rendering
+# nothing. Confirm --version looks like GNU coreutils before trusting a match.
+_is_gnu_timeout() {
+    "$1" --version </dev/null 2>/dev/null | grep -qi "coreutils"
+}
+_TIMEOUT_BIN=""
+for _cand in timeout gtimeout; do
+    if command -v "$_cand" >/dev/null 2>&1 && _is_gnu_timeout "$_cand"; then
+        _TIMEOUT_BIN="$_cand"
+        break
+    fi
+done
+_bt() {
+    local secs="$1"; shift
+    if [ -n "$_TIMEOUT_BIN" ]; then
+        "$_TIMEOUT_BIN" "$secs" "$@"
+    else
+        "$@"
+    fi
+}
+
 # shellcheck source=../scripts/paths.sh
 source "$(dirname "${BASH_SOURCE[0]}")/../scripts/paths.sh"
 source "$(dirname "${BASH_SOURCE[0]}")/substatus.sh"
@@ -47,22 +79,39 @@ SID="$BUDDY_SID"
 
 [ -f "$STATE" ] || exit 0
 
-MUTED=$(jq -r '.muted // false' "$STATE" 2>/dev/null)
+# One jq process for every status.json field instead of nine — each spawn
+# has real cost (antivirus/process-creation overhead on Windows especially),
+# and a slow statusline command risks the host's own watchdog killing it
+# before it produces output, silently freezing the display on stale content.
+#
+# Every jq/PowerShell call in this file is also wrapped in `timeout` on top
+# of that. On Windows, when the host kills a slow statusline invocation, it
+# force-kills the parent bash via taskkill /T /F — but MSYS-spawned
+# grandchildren (jq.exe launched from a Git-Bash-emulated fork/exec) don't
+# reliably get caught by that /T cascade, so a killed tick can leave its jq
+# calls running as permanently orphaned zombies instead of exiting. Found
+# 197 of them accumulated on one machine, choking the whole system (CPU
+# pinned near 100%, every new process spawn getting slower as a result,
+# which meant slower ticks, which meant more timeouts, which meant more
+# zombies). `timeout` makes every call self-terminating regardless of what
+# happens to its parent, which is the actual fix; being faster (below) just
+# makes the underlying kills less frequent.
+#
+# "absent" (for achievementAt) distinguishes a legacy status.json (no field at
+# all) from an explicit 0, which means "no achievement pending" and must not
+# render.
+IFS=$'\x1f' read -r MUTED NAME RARITY STARS SHINY ACHIEVEMENT ACHIEVEMENT_AT LEVEL MOOD < <(
+    _bt 3 jq -r '
+            def clean: gsub("[\n\u001f]"; " ");
+            [(.muted // false), ((.name // "") | clean), (.rarity // "common"), ((.stars // "") | clean),
+            (.shiny // false), ((.achievement // "") | clean),
+            (if has("achievementAt") then (.achievementAt // 0) else "absent" end),
+            (.level // 1), (.mood // "focused")] | join("")' "$STATE" 2>/dev/null | tr -d '\r'
+)
 [ "$MUTED" = "true" ] && exit 0
-
-NAME=$(jq -r '.name // ""' "$STATE" 2>/dev/null)
 [ -z "$NAME" ] && exit 0
 
-RARITY=$(jq -r '.rarity // "common"' "$STATE" 2>/dev/null)
-STARS=$(jq -r '.stars // ""' "$STATE" 2>/dev/null)
-SHINY=$(jq -r '.shiny // false' "$STATE" 2>/dev/null)
 REACTION_FILE="$BUDDY_STATE_DIR/reaction.$SID.json"
-ACHIEVEMENT=$(jq -r '.achievement // ""' "$STATE" 2>/dev/null)
-# "absent" distinguishes a legacy status.json (no field at all) from an explicit
-# 0, which means "no achievement pending" and must not render.
-ACHIEVEMENT_AT=$(jq -r 'if has("achievementAt") then (.achievementAt // 0) else "absent" end' "$STATE" 2>/dev/null)
-LEVEL=$(jq -r '.level // 1' "$STATE" 2>/dev/null)
-MOOD=$(jq -r '.mood // "focused"' "$STATE" 2>/dev/null)
 
 BUDDY_STATUSLINE_INPUT=$(cat)
 
@@ -72,8 +121,23 @@ NOW=${BUDDY_FAKE_NOW:-$(date +%s)}
 
 # ─── Rarity color (theme-aware) ─────────────────────────────────────────────
 _THEME="dark"
+_CFG_RAINBOW_TSV=""
 if [ -f "$CONFIG_FILE" ]; then
-    _cfg_theme=$(jq -r '.theme // "auto"' "$CONFIG_FILE" 2>/dev/null)
+    # One jq process for every config field instead of three separate reads
+    # (theme, rainbowColors, bubble/reaction settings) -- each spawn has real
+    # cost, especially on Windows (see the status.json consolidation note above).
+    # Command substitution + here-string, not read < <(...): on this
+    # Windows/MSYS setup, `read` fed via process substitution has been
+    # observed to leave a stray trailing CR on the last field even though
+    # `tr -d '\r'` runs cleanly under command substitution -- see the CR
+    # note on the status.json read above for the general class of bug.
+    _cfg_raw=$(_bt 3 jq -r '
+                def clean: tostring | gsub("[\n\u001f]"; " ");
+                [((.theme // "auto") | clean), ((.rainbowColors // []) | if type == "array" then @tsv else "" end),
+                ((.reactionTTL // 900) | clean), ((.bubbleWidth // 44) | clean), ((.bubbleMargin // 8) | clean),
+                ((.statuslineWidthAdjust // 0) | clean), ((.statuslineDensity // "auto") | clean)] | join("")' \
+            "$CONFIG_FILE" 2>/dev/null | tr -d '')
+    IFS=$'' read -r _cfg_theme _CFG_RAINBOW_TSV _ttl _bw _bm _wa _density <<< "$_cfg_raw"
     [ "$_cfg_theme" = "light" ] && _THEME="light"
 fi
 
@@ -112,14 +176,11 @@ RAINBOW=(
   $'\033[38;2;180;50;220m'
 )
 
-if [ -f "$CONFIG_FILE" ]; then
-    _custom=$(jq -r '(.rainbowColors // []) | @tsv' "$CONFIG_FILE" 2>/dev/null)
-    if [ -n "$_custom" ]; then
-        RAINBOW=()
-        for _hex in $_custom; do
-            RAINBOW+=("$(_hex_to_ansi "$_hex")")
-        done
-    fi
+if [ -n "$_CFG_RAINBOW_TSV" ]; then
+    RAINBOW=()
+    for _hex in $_CFG_RAINBOW_TSV; do
+        RAINBOW+=("$(_hex_to_ansi "$_hex")")
+    done
 fi
 
 COLOR_ENABLED=1
@@ -174,7 +235,17 @@ fi
 # If either dimension is still unknown, walk the process tree and read the
 # PTY dimensions once. stty size returns "rows cols"; parse both from the same
 # probe so rows and cols are consistent and no extra detection pass is needed.
-if [ "$ROWS" -lt 1 ] 2>/dev/null || [ "$COLS" -lt 1 ] 2>/dev/null; then
+#
+# This walk is Linux/macOS-only: there is no /proc and no real tty devices on
+# Windows, so it is guaranteed to run all 5 iterations and fail every time,
+# burning real time for nothing on a command that a slow-statusline watchdog
+# can kill outright (see the jq consolidation note above — same concern).
+case "$(uname -s)" in
+  MINGW*|CYGWIN*|MSYS*) _IS_WINDOWS=1 ;;
+  *)                    _IS_WINDOWS=0 ;;
+esac
+
+if [ "$_IS_WINDOWS" -eq 0 ] && { [ "$ROWS" -lt 1 ] 2>/dev/null || [ "$COLS" -lt 1 ] 2>/dev/null; }; then
     PID=$$
     for _ in 1 2 3 4 5; do
         PID=$(ps -o ppid= -p "$PID" 2>/dev/null | tr -d ' ')
@@ -212,16 +283,34 @@ if [ "$ROWS" -lt 1 ] 2>/dev/null || [ "$COLS" -lt 1 ] 2>/dev/null; then
 fi
 
 [ "${COLS:-0}" -lt 1 ] 2>/dev/null && COLS=0
-# Windows: /proc and TTY device detection don't exist; use PowerShell as fallback
-if [ "${COLS:-0}" -lt 1 ] 2>/dev/null; then
-    _ps_cols=$(powershell.exe -NoProfile -Command "(Get-Host).UI.RawUI.WindowSize.Width" 2>/dev/null | tr -d '\r\n')
-    if _is_positive_int "$_ps_cols"; then
+# Windows: /proc and TTY device detection don't exist; use PowerShell as
+# fallback. One process for both dimensions instead of two — each PowerShell
+# spawn is a full host boot (~0.5-1s), not just an ordinary process spawn.
+if [ "${COLS:-0}" -lt 1 ] 2>/dev/null || [ "${ROWS:-0}" -lt 1 ] 2>/dev/null; then
+    _ps_dims=$(_bt 5 powershell.exe -NoProfile -Command "(Get-Host).UI.RawUI.WindowSize.Width; (Get-Host).UI.RawUI.WindowSize.Height" 2>/dev/null | tr -d '\r')
+    # Pure parameter expansion, not sed -- two more process spawns just to
+    # split two lines would undercut the whole point of merging the calls.
+    # Only trust the split when both lines actually came back: if PowerShell
+    # printed just the width (a truncated/partial call), `${_ps_dims#*$'\n'}`
+    # with no newline in the string returns the string unchanged, so a lone
+    # width would get read as _ps_rows too -- accepted by _is_positive_int
+    # and selecting the wrong density tier.
+    case "$_ps_dims" in
+        *$'\n'*)
+            _ps_cols="${_ps_dims%%$'\n'*}"
+            _ps_rows="${_ps_dims#*$'\n'}"
+            ;;
+        *)
+            _ps_cols=""
+            _ps_rows=""
+            ;;
+    esac
+    if [ "${COLS:-0}" -lt 1 ] 2>/dev/null && _is_positive_int "$_ps_cols"; then
         [ "$_ps_cols" -gt 40 ] 2>/dev/null && COLS=$((10#$_ps_cols))
     fi
-fi
-if [ "${ROWS:-0}" -lt 1 ] 2>/dev/null; then
-    _ps_rows=$(powershell.exe -NoProfile -Command "(Get-Host).UI.RawUI.WindowSize.Height" 2>/dev/null | tr -d '\r\n')
-    _is_positive_int "$_ps_rows" && ROWS=$((10#$_ps_rows))
+    if [ "${ROWS:-0}" -lt 1 ] 2>/dev/null; then
+        _is_positive_int "$_ps_rows" && ROWS=$((10#$_ps_rows))
+    fi
 fi
 
 [ "${COLS:-0}" -lt 1 ] 2>/dev/null && COLS=125
@@ -240,27 +329,23 @@ REACTION_TTL=900
 INNER_W=44
 MARGIN=8
 DENSITY="auto"
-if [ -f "$CONFIG_FILE" ]; then
-    _ttl=$(jq -r '.reactionTTL // 900' "$CONFIG_FILE" 2>/dev/null || echo 900)
-    case "$_ttl" in ''|*[!0-9]*) ;; *) REACTION_TTL="$_ttl" ;; esac
-    _bw=$(jq -r '.bubbleWidth // 44' "$CONFIG_FILE" 2>/dev/null || echo 44)
-    case "$_bw" in ''|*[!0-9]*) ;; *) INNER_W="$_bw" ;; esac
-    _bm=$(jq -r '.bubbleMargin // 8' "$CONFIG_FILE" 2>/dev/null || echo 8)
-    case "$_bm" in ''|*[!0-9]*) ;; *) MARGIN="$_bm" ;; esac
-    _wa=$(jq -r '.statuslineWidthAdjust // 0' "$CONFIG_FILE" 2>/dev/null || echo 0)
-    if printf '%s' "$_wa" | grep -Eq '^[+-]?[0-9]+$'; then
-        case "$_wa" in
-            +*) STATUSLINE_WIDTH_ADJUST=$((10#${_wa#+})) ;;
-            -*) STATUSLINE_WIDTH_ADJUST=$((-10#${_wa#-})) ;;
-            *)  STATUSLINE_WIDTH_ADJUST=$((10#$_wa)) ;;
-        esac
-    fi
-    _density=$(jq -r '.statuslineDensity // "auto"' "$CONFIG_FILE" 2>/dev/null || echo "auto")
-    case "$_density" in
-        auto|full|compact|minimal) DENSITY="$_density" ;;
-        *) DENSITY="auto" ;;
+# Each field defaults independently below by simply not overwriting its
+# pre-set default when empty/invalid -- no need to (and no correctness
+# reason to) reset every field just because one of them came back empty.
+case "$_ttl" in ''|*[!0-9]*) ;; *) REACTION_TTL="$_ttl" ;; esac
+case "$_bw" in ''|*[!0-9]*) ;; *) INNER_W="$_bw" ;; esac
+case "$_bm" in ''|*[!0-9]*) ;; *) MARGIN="$_bm" ;; esac
+if printf '%s' "$_wa" | grep -Eq '^[+-]?[0-9]+$'; then
+    case "$_wa" in
+        +*) STATUSLINE_WIDTH_ADJUST=$((10#${_wa#+})) ;;
+        -*) STATUSLINE_WIDTH_ADJUST=$((-10#${_wa#-})) ;;
+        *)  STATUSLINE_WIDTH_ADJUST=$((10#$_wa)) ;;
     esac
 fi
+case "$_density" in
+    auto|full|compact|minimal) DENSITY="$_density" ;;
+    *) DENSITY="auto" ;;
+esac
 # ─── Statusline density tier ─────────────────────────────────────────────────
 # Explicit config/env density overrides pin the tier; otherwise rows drive it:
 #   full >= 40, compact 20-39, minimal < 20. Very narrow terminals also force minimal.
@@ -292,7 +377,7 @@ _sweep_expired_reactions() {
 
     for file in "$BUDDY_STATE_DIR"/reaction.*.json; do
         [ -f "$file" ] || continue
-        ts=$(jq -r '.timestamp // 0' "$file" 2>/dev/null || echo 0)
+        ts=$(_bt 3 jq -r '.timestamp // 0' "$file" 2>/dev/null || echo 0)
         case "$ts" in
             ''|*[!0-9]*) rm -f "$file" 2>/dev/null ;;
             *) [ "$ts" -le "$cutoff_ms" ] 2>/dev/null && rm -f "$file" 2>/dev/null ;;
@@ -335,13 +420,17 @@ if [ -n "$ACHIEVEMENT" ] && [ "$ACHIEVEMENT" != "null" ]; then
     [ "$ACH_FRESH" -eq 1 ] && BUBBLE=$'\xf0\x9f\x8f\x86'" $ACHIEVEMENT"
 fi
 
-REACTION=$(jq -r '.reaction // ""' "$REACTION_FILE" 2>/dev/null)
+# One jq process for reaction + timestamp instead of two (see the earlier
+# consolidation notes on why per-call spawn cost matters here).
+IFS=$'\x1f' read -r REACTION TS < <(
+    _bt 3 jq -r '[((.reaction // "") | gsub("[\n\u001f]"; " ")), (.timestamp // 0)] | join("")' "$REACTION_FILE" 2>/dev/null | tr -d '\r'
+)
+TS="${TS:-0}"
 if [ -n "$REACTION" ] && [ "$REACTION" != "null" ] && [ "$REACTION" != "" ]; then
     FRESH=0
     if [ "$REACTION_TTL" -eq 0 ]; then
         FRESH=1
     elif [ -f "$REACTION_FILE" ]; then
-        TS=$(jq -r '.timestamp // 0' "$REACTION_FILE" 2>/dev/null || echo 0)
         if [ "$TS" != "0" ]; then
             NOW=$(date +%s)
             AGE=$(( (NOW * 1000 - TS) / 1000 ))
@@ -361,13 +450,13 @@ fi
 
 # ─── Animation: pick current density frame from server-rendered frames ───────
 NOW=${BUDDY_FAKE_NOW:-$(date +%s)}
-FRAME_BODY=$(jq -r --argjson now "$NOW" --arg tier "$TIER" '
+FRAME_BODY=$(_bt 3 jq -r --argjson now "$NOW" --arg tier "$TIER" '
     .frameSequence[$now % (.frameSequence | length)] as $idx
     | if $tier == "compact" then ((.compactFrames? // .frames) | .[$idx] // .frames[$idx])
       elif $tier == "minimal" then ((.minimalFrames? // .frames) | .[$idx] // .frames[$idx])
       else .frames[$idx]
       end // ""
-' "$STATE" 2>/dev/null)
+' "$STATE" 2>/dev/null | tr -d '\r')
 
 # Fallback when status.json lacks .frames — e.g. server/bash version skew
 # during install or while the MCP server hasn't rewritten the file yet. Keep
@@ -449,8 +538,44 @@ EMOJI_PRES_2600="$(grep -v '^#' "$EMOJI_WIDTHS_DATA" 2>/dev/null | tr -d '\n')"
 EMOJI_TEXT_DATA="$(dirname "${BASH_SOURCE[0]}")/emoji-text.data"
 EMOJI_TEXT="$(grep -v '^#' "$EMOJI_TEXT_DATA" 2>/dev/null | tr -d '\n')"
 
+# iconv is not guaranteed to exist even where it always has before: it is
+# genuinely absent on this machine right now (only the libiconv DLL other
+# tools link against is installed, not the standalone binary) despite having
+# worked earlier in the same environment, so this is not a platform check to
+# skip -- it is a real, observed runtime gap. python3 (already a hard
+# dependency of the wider install, per README/cli/install.ts) reads the same
+# UTF-8 bytes and emits the same "one decimal codepoint per token" shape
+# `od -An -tu4` does, so the awk scripts below don't need to know which one
+# ran. Without this fallback, every non-ASCII value (rarity stars, mood/
+# achievement glyphs) silently gets zero width data and whatever depends on
+# it -- truncation, centering -- breaks for exactly the buddies (rare/epic/
+# legendary, i.e. the ones with stars) most likely to need it.
+command -v iconv >/dev/null 2>&1 && _HAS_ICONV=1 || _HAS_ICONV=0
+_utf8_codepoints() {
+    if [ "$_HAS_ICONV" -eq 1 ]; then
+        printf '%s' "$1" | iconv -f UTF-8 -t UTF-32LE 2>/dev/null | od -An -tu4
+    else
+        printf '%s' "$1" | python3 -c '
+import sys
+data = sys.stdin.buffer.read().decode("utf-8", "replace")
+print(" ".join(str(ord(c)) for c in data))
+' 2>/dev/null
+    fi
+}
+
 dwidth() {
-    printf '%s' "$1" | iconv -f UTF-8 -t UTF-32LE 2>/dev/null | od -An -tu4 | awk -v pres="$EMOJI_PRES_2600" -v text="$EMOJI_TEXT" '
+    # Fast path: every ASCII codepoint is width 1 under char_width() below (none
+    # of the wide/CJK/fullwidth/box-drawing ranges are in 0-127), so for ASCII-only
+    # input this is just the byte length. Skipping straight to that avoids the
+    # iconv|od|awk pipeline — three process spawns per call, each costing real
+    # time on Windows — for what is, in practice, most reaction text. Callers
+    # invoke dwidth() once per word during word-wrap, so on a slow spawn platform
+    # this was previously seconds of wall-clock time for one ordinary reaction.
+    case "$1" in
+        *[![:ascii:]]*) ;;
+        *) printf '%s' "${#1}"; return ;;
+    esac
+    _utf8_codepoints "$1" | awk -v pres="$EMOJI_PRES_2600" -v text="$EMOJI_TEXT" '
     function load_ranges(value, target,    n, i, count, piece, bounds, start, end, cp) {
         n = split(value, ranges, ",")
         for (i = 1; i <= n; i++) {
@@ -490,7 +615,17 @@ dwidth() {
 # Emit one display-width value per UTF-8 codepoint. ANSI-aware truncation uses
 # this profile to make one Unicode-width pass over the complete output row.
 dwidth_profile() {
-    printf '%s' "$1" | iconv -f UTF-8 -t UTF-32LE 2>/dev/null | od -An -tu4 | awk -v pres="$EMOJI_PRES_2600" -v text="$EMOJI_TEXT" '
+    # Same ASCII fast path as dwidth() above, just emitting one "1" per byte
+    # instead of a single summed total (every caller reads this line-by-line).
+    case "$1" in
+        *[![:ascii:]]*) ;;
+        *)
+            local _n=${#1} _i
+            for (( _i = 0; _i < _n; _i++ )); do printf '1\n'; done
+            return
+            ;;
+    esac
+    _utf8_codepoints "$1" | awk -v pres="$EMOJI_PRES_2600" -v text="$EMOJI_TEXT" '
     function load_ranges(value, target,    n, i, count, piece, bounds, start, end, cp) {
         n = split(value, ranges, ",")
         for (i = 1; i <= n; i++) {
@@ -536,22 +671,172 @@ dwidth_profile() {
         for (j = 1; j <= idx; j++) print widths[j] + 0
     }'
 }
+# \xe2\x94\x80\xe2\x94\x80\xe2\x94\x80 Batched width helpers \xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80\xe2\x94\x80
+# Same width rules as dwidth()/dwidth_profile() above, but for N strings at
+# once: joins whichever arguments actually contain non-ASCII characters with
+# the Unit Separator (already used elsewhere in this file as a safe
+# delimiter) and computes all of their codepoints/widths in a single
+# subprocess pair instead of one pair per string. Pure-ASCII arguments keep
+# using the same fast path dwidth()/dwidth_profile() use, at zero extra cost.
+
+# Fills the global _BATCH_PROFILES array: one space-separated per-character
+# width list per non-ASCII argument, in argument order.
+_batch_dwidth_profiles() {
+    _BATCH_PROFILES=()
+    local _joined="" _s _first=1 _raw _line
+    for _s in "$@"; do
+        if [ "$_first" -eq 1 ]; then
+            _joined="$_s"
+            _first=0
+        else
+            _joined="${_joined}"$'\x1f'"${_s}"
+        fi
+    done
+    _raw=$(_utf8_codepoints "$_joined" | awk -v pres="$EMOJI_PRES_2600" -v text="$EMOJI_TEXT" '
+    function load_ranges(value, target,    n, i, count, piece, bounds, start, end, cp) {
+        n = split(value, ranges, ",")
+        for (i = 1; i <= n; i++) {
+            count = split(ranges[i], bounds, "-")
+            start = bounds[1] + 0
+            end = (count == 2) ? bounds[2] + 0 : start
+            for (cp = start; cp <= end; cp++) target[cp] = 1
+        }
+    }
+    BEGIN {
+        load_ranges(pres, wide)
+        load_ranges(text, text_default)
+    }
+    function char_width(cp) {
+        if (cp in wide) return 2
+        if (cp >= 9472 && cp <= 9631) return 1
+        if (cp >= 12288 && cp <= 40959) return 2
+        if (cp >= 65281 && cp <= 65376) return 2
+        return 1
+    }
+    function flush(    j, line) {
+        line = ""
+        for (j = 1; j <= idx; j++) line = line (j > 1 ? " " : "") (widths[j] + 0)
+        print line
+        idx = 0
+        upgradable = 0
+        delete widths
+    }
+    {
+        for (i = 1; i <= NF; i++) {
+            cp = $i + 0
+            if (cp == 31) { flush(); continue }
+            if (cp == 65039) {
+                if (upgradable && idx > 0) widths[idx] += 1
+                idx++
+                widths[idx] = 0
+                upgradable = 0
+                continue
+            }
+            if ((cp >= 65024 && cp <= 65038) || cp == 8205) {
+                idx++
+                widths[idx] = 0
+                upgradable = 0
+                continue
+            }
+            idx++
+            cw = char_width(cp)
+            widths[idx] = cw
+            upgradable = 0
+            if (cw == 1 && (cp in text_default)) upgradable = 1
+        }
+    }
+    END { flush() }')
+    while IFS= read -r _line; do
+        _BATCH_PROFILES+=("$_line")
+    done <<< "$_raw"
+}
+
+# Sum variant: fills the global _BATCH_WIDTHS array with one integer total
+# width per argument, applying the same per-argument ASCII fast path as
+# dwidth() so only the non-ASCII arguments pay for the batched subprocess.
+_batch_dwidth() {
+    _BATCH_WIDTHS=()
+    local -a _slow_idx=() _slow_strs=()
+    local _i=0 _s _k=0 _profile _sum _w
+    for _s in "$@"; do
+        case "$_s" in
+            *[![:ascii:]]*)
+                _slow_idx+=("$_i")
+                _slow_strs+=("$_s")
+                _BATCH_WIDTHS[_i]=0
+                ;;
+            *)
+                _BATCH_WIDTHS[_i]=${#_s}
+                ;;
+        esac
+        _i=$(( _i + 1 ))
+    done
+    if [ "${#_slow_strs[@]}" -gt 0 ]; then
+        _batch_dwidth_profiles "${_slow_strs[@]}"
+        for _profile in "${_BATCH_PROFILES[@]}"; do
+            _sum=0
+            for _w in $_profile; do _sum=$(( _sum + _w )); done
+            _BATCH_WIDTHS[${_slow_idx[$_k]}]=$_sum
+            _k=$(( _k + 1 ))
+        done
+    fi
+}
+
+# Profile variant used for the final render pass: fills the global
+# _LINE_WIDTHS array with one space-separated per-character width list per
+# argument (ASCII arguments get an all-1s list without touching the batch).
+_batch_dwidth_profiles_indexed() {
+    _LINE_WIDTHS=()
+    local -a _slow_idx=() _slow_strs=()
+    local _i=0 _s _n _c _w _k=0
+    for _s in "$@"; do
+        case "$_s" in
+            *[![:ascii:]]*)
+                _slow_idx+=("$_i")
+                _slow_strs+=("$_s")
+                _LINE_WIDTHS[_i]=""
+                ;;
+            *)
+                _n=${#_s}
+                _w=""
+                for (( _c = 0; _c < _n; _c++ )); do _w="${_w}1 "; done
+                _LINE_WIDTHS[_i]="$_w"
+                ;;
+        esac
+        _i=$(( _i + 1 ))
+    done
+    if [ "${#_slow_strs[@]}" -gt 0 ]; then
+        _batch_dwidth_profiles "${_slow_strs[@]}"
+        for _w in "${_BATCH_PROFILES[@]}"; do
+            _LINE_WIDTHS[${_slow_idx[$_k]}]="$_w"
+            _k=$(( _k + 1 ))
+        done
+    fi
+}
+
+# Batch every sizing dwidth() call (art rows + the name label) into a single
+# subprocess pair instead of one pair per non-ASCII string -- see the
+# _utf8_codepoints note above for why per-call spawn cost matters here.
+_batch_dwidth "${ART_LINES[@]}" "$NAME_WITH_LEVEL"
 ART_W=0
-for line in "${ART_LINES[@]}"; do
-    line_w=$(dwidth "$line")
+_art_line_count=${#ART_LINES[@]}
+for (( _wi = 0; _wi < _art_line_count; _wi++ )); do
+    line_w="${_BATCH_WIDTHS[$_wi]}"
     [ "$line_w" -gt "$ART_W" ] && ART_W="$line_w"
 done
 
 # Keep the label inside the same sprite column as the art. The exact Unicode
 # width rules live in dwidth(), so the shell and TS renderers agree on bounds.
-LABEL_W=$(dwidth "$NAME_WITH_LEVEL")
+LABEL_W="${_BATCH_WIDTHS[$_art_line_count]}"
 if [ "$LABEL_W" -gt "$ART_W" ] 2>/dev/null; then
     ART_W="$LABEL_W"
     NAME_PAD=$(( (ART_W - LABEL_W) / 2 ))
     NAME_LINE="$(printf '%*s%s' "$NAME_PAD" '' "$NAME_WITH_LEVEL")"
     ALL_LINES[$(( ART_COUNT - 1 ))]="$NAME_LINE"
 fi
-NAME_LINE_W=$(dwidth "$NAME_LINE")
+# NAME_LINE is NAME_PAD plain ASCII spaces (width 1 each) prepended to the
+# already-measured label, so its width is arithmetic -- no extra dwidth call.
+NAME_LINE_W=$(( NAME_PAD + LABEL_W ))
 # Centering the name against a short fixture frame can make the label wider
 # than every art row; include that width before sizing the card.
 [ "$NAME_LINE_W" -gt "$ART_W" ] && ART_W="$NAME_LINE_W"
@@ -756,34 +1041,34 @@ for (( i=0; i<MAX_LINES; i++ )); do
             fi
         else
             empty=$(printf '%*s' "$BOX_W" '')
-            OUTPUT_LINES+=("${SPACER}${empty}   ${art_part}")
+            # NC right after SPACER breaks up what would otherwise be one long
+            # unbroken run of literal space characters (SPACER + empty box +
+            # gap). Rows that DO have bubble content only ever have ~SPACER-
+            # length of contiguous spaces before hitting a color escape code,
+            # and render fine; rows using this placeholder branch had a much
+            # longer uninterrupted space run and were observed shifting left
+            # in VS Code's terminal specifically (not in this script's own
+            # captured stdout) -- NC is a no-op escape, it just breaks the run.
+            OUTPUT_LINES+=("${SPACER}${NC}${empty}   ${art_part}")
         fi
     else
         OUTPUT_LINES+=("${SPACER}${art_part}")
     fi
 done
 
-ansi_truncate() {
+# Precompute width profiles for every rendered row in one batched subprocess
+# pair instead of one pair per row inside ansi_truncate -- see the
+# _utf8_codepoints note above for why per-call spawn cost matters here.
+# Returns through the _STRIP_ANSI_OUT global rather than printf + command
+# substitution -- called once per rendered row, and a subshell fork per row
+# is exactly the per-call spawn cost this PR removes elsewhere.
+_strip_ansi() {
     local text="$1"
-    local max_width="$2"
-    local out=""
-    local plain=""
-    local i=0
+    local out="" i=0 char
     local text_len=${#text}
-    local char seq char_width truncated=0 saw_sgr=0
-    local visible_width=0
-    local -a widths
-    local visible_index=0
-
-    [ "$max_width" -lt 0 ] && max_width=0
-
-    # Strip SGR while building the one string sent to dwidth_profile. The
-    # profile uses one iconv/od/awk pass for the whole row; never spawn a
-    # subprocess for each Unicode character.
     while [ "$i" -lt "$text_len" ]; do
         char="${text:$i:1}"
         if [ "$char" = $'\033' ]; then
-            saw_sgr=1
             i=$(( i + 1 ))
             while [ "$i" -lt "$text_len" ]; do
                 char="${text:$i:1}"
@@ -792,18 +1077,47 @@ ansi_truncate() {
             done
             continue
         fi
-        plain="${plain}${char}"
+        out="${out}${char}"
         i=$(( i + 1 ))
     done
+    _STRIP_ANSI_OUT="$out"
+}
 
-    widths=()
-    if [ -n "$plain" ]; then
+_LINE_PLAIN=()
+for line in "${OUTPUT_LINES[@]}"; do
+    _strip_ansi "$line"
+    _LINE_PLAIN+=("$_STRIP_ANSI_OUT")
+done
+_batch_dwidth_profiles_indexed "${_LINE_PLAIN[@]}"
+
+ansi_truncate() {
+    local text="$1"
+    local max_width="$2"
+    local widths_str="$3"
+    local out=""
+    local i=0
+    local text_len=${#text}
+    local char seq char_width truncated=0 saw_sgr=0
+    local visible_width=0
+    local -a widths=()
+    local visible_index=0
+
+    [ "$max_width" -lt 0 ] && max_width=0
+
+    case "$text" in *$'\033'*) saw_sgr=1 ;; esac
+    if [ -n "$widths_str" ]; then
+        read -r -a widths <<< "$widths_str"
+    elif [ -n "$text" ]; then
+        # Callers outside this script's own render loop (e.g. substatus.sh's
+        # append_substatus, which calls statusline_output_line with just one
+        # argument) don't have a precomputed profile. Fall back to computing
+        # it here instead of silently treating every character as width 1.
+        _strip_ansi "$text"
         while IFS= read -r char_width; do
             widths+=("$char_width")
-        done < <(dwidth_profile "$plain")
+        done < <(dwidth_profile "$_STRIP_ANSI_OUT")
     fi
 
-    i=0
     while [ "$i" -lt "$text_len" ]; do
         char="${text:$i:1}"
         if [ "$char" = $'\033' ]; then
@@ -835,12 +1149,22 @@ ansi_truncate() {
 }
 
 statusline_output_line() {
-    ansi_truncate "$1" "$STATUSLINE_BUDGET"
+    # Erase the whole line before drawing it. Observed live in VS Code:
+    # when a row's internal structure changes a lot between ticks (e.g. a
+    # reaction bubble or, with combined-status.sh, rate-limit stats
+    # appearing/disappearing) while its total visible width stays the same,
+    # stale characters from the previous tick's differently-shaped line can
+    # linger instead of being fully overwritten. \033[2K clears the entire
+    # line regardless of cursor position, without moving the cursor, so the
+    # new content always draws onto a blank line.
+    printf '\033[2K'
+    ansi_truncate "$1" "$STATUSLINE_BUDGET" "$2"
     printf '\n'
 }
 
-for line in "${OUTPUT_LINES[@]}"; do
-    statusline_output_line "$line"
+_output_line_count=${#OUTPUT_LINES[@]}
+for (( _oi = 0; _oi < _output_line_count; _oi++ )); do
+    statusline_output_line "${OUTPUT_LINES[$_oi]}" "${_LINE_WIDTHS[$_oi]}"
 done
 
 # Append the last cached sub-status result below the buddy panel and refresh
