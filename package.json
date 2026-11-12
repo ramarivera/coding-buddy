@@ -1,6 +1,6 @@
 {
   "name": "@ramarivera/coding-buddy",
-  "version": "0.9.5",
+  "version": "0.9.6",
   "description": "Persistent coding companion for Claude Code, Pi, and Oh My Pi",
   "type": "module",
   "omp": {

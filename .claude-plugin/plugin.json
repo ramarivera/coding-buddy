@@ -1,6 +1,6 @@
 {
     "name": "coding-buddy",
-    "version": "0.9.5",
+    "version": "0.9.6",
     "description": "Persistent coding companion for Claude Code, Pi, and Oh My Pi. MCP-based terminal pet with ASCII art, stats, reactions, and personality.",
     "author": {
         "name": "ramarivera"
