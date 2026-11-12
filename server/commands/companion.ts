@@ -64,9 +64,10 @@ export const buddy_pet = defineCommand(
       companion.bones.rarity,
     );
     saveReaction(reaction, "pet", "fallback");
-    writeStatusState(companion, reaction);
     incrementEvent("pets", 1, activeSlot());
     awardXp("buddy_pet", activeSlot(), companion.bones.species, companion.bones.rarity);
+    // After awardXp, so the status file carries the level this pet just earned.
+    writeStatusState(companion, reaction);
 
     const face = renderFace(companion.bones.species, companion.bones.eye);
     const newAch = checkAndAward(activeSlot());

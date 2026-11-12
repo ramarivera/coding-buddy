@@ -489,6 +489,15 @@ function deriveMinimalFrames(bones: BuddyBones, eye: string): string[] {
   const face = renderFace(bones.species, eye);
   return Array.from({ length: 4 }, () => face);
 }
+/** Ordinary status refreshes keep the mute state; only mute and unmute pass one. */
+function previousMuted(): boolean {
+  try {
+    return JSON.parse(readFileSync(STATUS_FILE(), "utf8")).muted === true;
+  } catch {
+    return false;
+  }
+}
+
 export function writeStatusState(
   companion: Companion,
   reaction?: string,
@@ -545,7 +554,7 @@ export function writeStatusState(
     shiny: companion.bones.shiny,
     hat: companion.bones.hat,
     reaction: "",
-    muted: muted ?? false,
+    muted: muted ?? previousMuted(),
     achievement: achievement ?? "",
     achievementAt: achievement ? Date.now() : 0,
     frames,
