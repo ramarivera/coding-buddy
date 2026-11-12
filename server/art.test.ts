@@ -8,7 +8,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { displayWidth, getArtFrame, getStatusFrames, resolveEyeGlyph, STATUS_FRAME_SEQUENCE, truncateDisplayWidth } from "./art.ts";
+import { displayWidth, getArtFrame, getStatusFrames, SPECIES_ART, resolveEyeGlyph, STATUS_FRAME_SEQUENCE, truncateDisplayWidth } from "./art.ts";
 import { SPECIES_ART as CORE_SPECIES_ART } from "../core/art-data.ts";
 import { SPECIES, EYES, type BuddyBones } from "../core/engine.ts"
 function readCodepointRanges(path: string): number[] {
@@ -249,5 +249,9 @@ describe("core wyvern art", () => {
         expect(line).not.toContain("\x1b[");
       }
     }
+  });
+
+  test("the server copy matches the core frames", () => {
+    expect(SPECIES_ART.wyvern).toEqual(CORE_SPECIES_ART.wyvern);
   });
 });
