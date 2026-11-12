@@ -5,14 +5,14 @@
     },
     "metadata": {
         "description": "Persistent coding companion for Claude Code, Pi, and Oh My Pi (requires bun: https://bun.sh/install)",
-        "version": "0.9.5"
+        "version": "0.9.6"
     },
     "plugins": [
         {
             "name": "coding-buddy",
             "source": "./",
             "description": "Persistent coding companion for Claude Code, Pi, and Oh My Pi. MCP-based terminal pet with ASCII art, stats, reactions, and personality. Requires bun runtime (https://bun.sh/install).",
-            "version": "0.9.5",
+            "version": "0.9.6",
             "author": {
                 "name": "ramarivera"
             },
