@@ -77,7 +77,7 @@ describe("Pi buddy renderers", () => {
     expect(rendered).toContain("Ember");
     expect(rendered).toContain("★★★★★");
     // The widget animates, so match the wing row of any wyvern frame.
-    expect(rendered).toMatch(/\|[\\/][\^v]```[\^v][\\/]\|/);
+    expect(rendered).toMatch(/\|\\\^```\^\/\||\|\/v```v\\\|/);
   });
 
   test("keeps long detail labels within the width contract", () => {
