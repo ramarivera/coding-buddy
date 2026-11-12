@@ -66,6 +66,7 @@ describe("OMP buddy renderers", () => {
     expect(rendered).toContain("\x1b[2;3m");
     expect(rendered).toContain("Ember");
     expect(rendered).toContain("★★★★★");
-    expect(rendered).toContain("|\\^```^/|");
+    // The widget animates, so match the wing row of any wyvern frame.
+    expect(rendered).toMatch(/\|\\\^```\^\/\||\|\/v```v\\\|/);
   });
 });
