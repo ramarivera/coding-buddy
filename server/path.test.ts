@@ -15,6 +15,7 @@ import { tmpdir } from "os";
 
 import {
   buddyStateDir,
+  buddyAppDir,
   claudeConfigDir,
   claudeSettingsPath,
   claudeSkillDir,
@@ -107,5 +108,14 @@ describe("buddyStateDir", () => {
   test("default is ~/.claude-buddy when CLAUDE_CONFIG_DIR is unset", () => {
     delete process.env.CLAUDE_CONFIG_DIR;
     expect(buddyStateDir()).toBe(join(homedir(), ".claude-buddy"));
+  });
+});
+
+describe("buddyAppDir", () => {
+  afterEach(restoreEnv);
+
+  test("places the stable runtime copy below the profile state dir", () => {
+    process.env.CLAUDE_CONFIG_DIR = "/tmp/profile";
+    expect(buddyAppDir()).toBe("/tmp/profile/buddy-state/app");
   });
 });

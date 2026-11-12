@@ -1,16 +1,16 @@
 #!/usr/bin/env bun
 /**
- * claude-buddy CLI
+ * coding-buddy CLI
  *
  * Usage:
- *   npx claude-buddy              Interactive install
- *   npx claude-buddy install      Install MCP + skill + hooks + statusline
- *   npx claude-buddy show         Show current buddy
- *   npx claude-buddy pick         Interactive two-pane buddy picker (saved + search)
- *   npx claude-buddy hunt         Search for a specific buddy (non-interactive)
- *   npx claude-buddy upgrade     Pull latest + reinstall
- *   npx claude-buddy uninstall    Remove all integrations
- *   npx claude-buddy verify       Verify what buddy your ID produces
+ *   npx -y @ramarivera/coding-buddy              Interactive install
+ *   npx -y @ramarivera/coding-buddy install      Install MCP + skill + hooks + statusline
+ *   npx -y @ramarivera/coding-buddy show         Show current buddy
+ *   npx -y @ramarivera/coding-buddy pick         Interactive two-pane buddy picker (saved + search)
+ *   npx -y @ramarivera/coding-buddy hunt         Search for a specific buddy (non-interactive)
+ *   npx -y @ramarivera/coding-buddy upgrade      Pull latest + reinstall
+ *   npx -y @ramarivera/coding-buddy uninstall     Remove all integrations
+ *   npx -y @ramarivera/coding-buddy verify       Verify what buddy your ID produces
  */
 
 export {}; // Make this file a module for TypeScript top-level await
@@ -71,14 +71,14 @@ switch (command) {
 
 function showHelp() {
   console.log(`
-claude-buddy — permanent coding companion for Claude Code
+coding-buddy — permanent coding companion for Claude Code, Pi, and Oh My Pi
 
 Setup:
   install-buddy     Set up MCP server, skill, hooks, and status line
   upgrade           Pull latest version and reinstall integrations
   enable            Same as install-buddy (re-enable after disable)
   disable           Temporarily deactivate buddy (data preserved)
-  uninstall         Remove all claude-buddy integrations
+  uninstall         Remove all coding-buddy integrations
 
 Buddy:
   show              Display your current buddy
@@ -96,7 +96,7 @@ Settings:
 Diagnostics:
   doctor            Run diagnostic report (paste output in bug reports)
   test-statusline   Test status line rendering in Claude Code
-  backup            Snapshot or restore all claude-buddy state
+  backup            Snapshot or restore all coding-buddy state
 
 In Claude Code:
   /buddy            Show companion card with ASCII art + stats
@@ -118,8 +118,9 @@ In Claude Code:
   /buddy width      Set bubble text width in chars (10-60, tmux only)
 
 Usage:
-  bun run <command>           e.g. bun run show, bun run doctor
-  claude-buddy <command>      if globally linked (bun link)
-  bun run help                Show this help
+  npx -y @ramarivera/coding-buddy <command>  Run from the registry without cloning
+  bun run <command>                           e.g. bun run show, bun run doctor (in repo)
+  coding-buddy <command>                      if globally linked (bun link)
+  bun run help                                Show this help
 `);
 }

@@ -21,8 +21,10 @@ import {
   generateBones,
   renderFace,
   renderCompact,
+  resolveEyeGlyph,
   type BuddyBones,
 } from "./engine.ts";
+import { getArtFrame } from "./render-model.ts";
 
 // ─── hashString ────────────────────────────────────────────────────────────
 
@@ -304,6 +306,15 @@ describe("renderFace", () => {
     expect(renderFace("duck", eye)).toBe("(·>");
     expect(renderFace("blob", eye)).toBe("(··)");
     expect(renderFace("robot", eye)).toBe("[··]");
+  });
+
+  test("sanitizes persisted descriptor words before face rendering", () => {
+    expect(resolveEyeGlyph("normal")).toBe("\u00b0");
+    expect(renderFace("duck", "normal")).toBe("(\u00b0>");
+  });
+
+  test("shared frame renderer sanitizes persisted descriptor words", () => {
+    expect(getArtFrame("duck", "normal")[2]).toContain("  <(\u00b0 )___  ");
   });
 
   test("never leaves a literal {E} in the output", () => {

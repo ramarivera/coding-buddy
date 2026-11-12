@@ -2,7 +2,7 @@
 
 ## Scope
 
-claude-buddy runs locally on your machine. It consists of:
+coding-buddy runs locally on your machine. It consists of:
 - An MCP server (stdio, local only — no network listeners)
 - Shell scripts for status line and hooks
 - State files in `~/.claude-buddy/`

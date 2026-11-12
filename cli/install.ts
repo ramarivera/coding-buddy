@@ -1,5 +1,5 @@
 /**
- * claude-buddy installer
+ * coding-buddy installer
  *
  * Registers: MCP server (in Claude's user config), skill, hooks, status line
  * (in settings.json). All paths resolve via server/paths.ts, so the installer
@@ -7,20 +7,38 @@
  * ~/.claude/ layout when the env var is unset.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, cpSync } from "fs";
-import { execSync } from "child_process";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, cpSync, rmSync } from "fs";
+import { execFileSync, execSync } from "child_process";
 import { resolve, dirname, join } from "path";
 
-import { generateBones, renderBuddy, renderFace, RARITY_STARS } from "../server/engine.ts";
+import { generateBones, renderBuddy, renderFace, RARITY_STARS } from "../core/engine.ts"
 import {
   claudeConfigDir,
+  buddyStateDir,
   claudeSettingsPath,
   claudeSkillDir,
   claudeUserConfigPath,
   toUnixPath,
 } from "../server/path.ts";
 import { loadCompanion, saveCompanion, resolveUserId, writeStatusState } from "../server/state.ts";
-import { generateFallbackName } from "../server/reactions.ts";
+import { generateFallbackName } from "../core/reactions.ts"
+import {
+  installRuntimeAppAtomically,
+  redactSecrets,
+  stableRuntimePaths,
+  supportsTextLockfile,
+} from "./runtime-app.ts";
+
+/** Recognise any buddy-owned hook command, however it is pathed. */
+function isBuddyHookCommand(command: unknown): boolean {
+  if (typeof command !== "string") return false;
+  return (
+    command.includes("coding-buddy") ||
+    command.includes("claude-buddy") ||
+    command.includes("buddy-state") ||
+    /\/(buddy-comment|suggest|react|mood-react|name-react|file-type-react)\.(sh|ts)\b/.test(command)
+  );
+}
 
 const CYAN = "\x1b[36m";
 const GREEN = "\x1b[32m";
@@ -35,11 +53,12 @@ const SETTINGS_FILE = claudeSettingsPath();
 const BUDDY_DIR = claudeSkillDir("buddy");
 const CLAUDE_JSON_PATH = claudeUserConfigPath();
 const PROJECT_ROOT = resolve(dirname(import.meta.dir));
+const HOOK_TIMEOUT_SECONDS = 15;
 
 function banner() {
   console.log(`
 ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}
-${CYAN}║${NC}  ${BOLD}claude-buddy${NC} — permanent coding companion              ${CYAN}║${NC}
+${CYAN}║${NC}  ${BOLD}coding-buddy${NC} — permanent coding companion              ${CYAN}║${NC}
 ${CYAN}║${NC}  ${DIM}MCP + Skill + StatusLine + Hooks${NC}                        ${CYAN}║${NC}
 ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}
 `);
@@ -115,8 +134,8 @@ function saveSettings(settings: Record<string, any>) {
 
 // ─── Step 1: Register MCP server (in ~/.claude.json) ────────────────────────
 
-function installMcp() {
-  const serverPath = join(PROJECT_ROOT, "server", "index.ts");
+function installMcp(appDir: string) {
+  const serverPath = stableRuntimePaths(appDir).mcpServer;
 
   let claudeJson: Record<string, any> = {};
   try {
@@ -128,7 +147,7 @@ function installMcp() {
   claudeJson.mcpServers["claude-buddy"] = {
     command: "bun",
     args: [toUnixPath(serverPath)],
-    cwd: toUnixPath(PROJECT_ROOT),
+    cwd: toUnixPath(appDir),
   };
 
   writeFileSync(CLAUDE_JSON_PATH, JSON.stringify(claudeJson, null, 2));
@@ -146,8 +165,8 @@ function installSkill() {
 
 // ─── Step 3: Configure status line (with animation refresh) ─────────────────
 
-function installStatusLine(settings: Record<string, any>) {
-  const statusScript = join(PROJECT_ROOT, "statusline", "buddy-status.sh");
+function installStatusLine(settings: Record<string, any>, appDir: string) {
+  const statusScript = stableRuntimePaths(appDir).statusline;
 
   settings.statusLine = {
     type: "command",
@@ -180,13 +199,19 @@ function stripLegacyPopupHooks(settings: Record<string, any>) {
 
 // ─── Step 4: Register hooks ─────────────────────────────────────────────────
 
-function installHooks(settings: Record<string, any>) {
-  const reactHook     = join(PROJECT_ROOT, "hooks", "react.sh");
-  const fileTypeHook  = join(PROJECT_ROOT, "hooks", "file-type-react.sh");
-  const commentHook   = join(PROJECT_ROOT, "hooks", "buddy-comment.sh");
-  const suggestHook   = join(PROJECT_ROOT, "hooks", "suggest.sh");
-  const nameHook      = join(PROJECT_ROOT, "hooks", "name-react.sh");
-  const moodHook      = join(PROJECT_ROOT, "hooks", "mood-react.sh");
+function installHooks(settings: Record<string, any>, appDir: string) {
+  const hooksDir = stableRuntimePaths(appDir).hooks;
+  const reactHook     = join(hooksDir, "react.sh");
+  const fileTypeHook  = join(hooksDir, "file-type-react.sh");
+  const commentHook   = join(hooksDir, "buddy-comment.sh");
+  const suggestHook   = join(hooksDir, "suggest.sh");
+  const nameHook      = join(hooksDir, "name-react.sh");
+  const moodHook      = join(hooksDir, "mood-react.sh");
+  const commandHook = (command: string) => ({
+    type: "command",
+    command: toUnixPath(command),
+    timeout: HOOK_TIMEOUT_SECONDS,
+  });
 
   if (!settings.hooks) settings.hooks = {};
 
@@ -194,43 +219,80 @@ function installHooks(settings: Record<string, any>) {
   // plus file-type specific reactions on Write/Edit.
   if (!settings.hooks.PostToolUse) settings.hooks.PostToolUse = [];
   settings.hooks.PostToolUse = settings.hooks.PostToolUse.filter(
-    (h: any) => !h.hooks?.some((hh: any) => hh.command?.includes("claude-buddy")),
+    (h: any) => !h.hooks?.some((hh: any) => isBuddyHookCommand(hh.command)),
   );
   settings.hooks.PostToolUse.push({
     matcher: "Bash",
-    hooks: [{ type: "command", command: toUnixPath(reactHook) }],
+    hooks: [commandHook(reactHook)],
   });
   settings.hooks.PostToolUse.push({
     matcher: "Write|Edit",
-    hooks: [{ type: "command", command: toUnixPath(fileTypeHook) }],
+    hooks: [commandHook(fileTypeHook)],
   });
 
   // Stop: extract <!-- buddy: --> comment from Claude's response
   if (!settings.hooks.Stop) settings.hooks.Stop = [];
+  // Match on the hook script filenames, not the package name: the installed
+  // path is <state>/app/hooks/buddy-comment.sh, which contains neither
+  // "coding-buddy" nor "claude-buddy". The old filter therefore never matched
+  // and every install appended another pair — observed at 8 Stop entries on a
+  // dogfooding machine. Duplicates are not harmless: the first invocation
+  // adopts a buddy_react reaction and stamps the stop marker, then the rest
+  // see it as stale and overwrite the bubble with a canned pool line.
   settings.hooks.Stop = settings.hooks.Stop.filter(
-    (h: any) => !h.hooks?.some((hh: any) => hh.command?.includes("claude-buddy")),
+    (h: any) => !h.hooks?.some((hh: any) => isBuddyHookCommand(hh.command)),
   );
   settings.hooks.Stop.push({
-    hooks: [{ type: "command", command: toUnixPath(commentHook) }],
+    hooks: [commandHook(commentHook)],
   });
   settings.hooks.Stop.push({
-    hooks: [{ type: "command", command: toUnixPath(suggestHook) }],
+    hooks: [commandHook(suggestHook)],
   });
 
   // UserPromptSubmit: detect buddy's name in user message → instant status line
   // reaction, plus mood-react based on prompt content.
   if (!settings.hooks.UserPromptSubmit) settings.hooks.UserPromptSubmit = [];
   settings.hooks.UserPromptSubmit = settings.hooks.UserPromptSubmit.filter(
-    (h: any) => !h.hooks?.some((hh: any) => hh.command?.includes("claude-buddy")),
+    (h: any) => !h.hooks?.some((hh: any) => isBuddyHookCommand(hh.command)),
   );
   settings.hooks.UserPromptSubmit.push({
-    hooks: [{ type: "command", command: toUnixPath(nameHook) }],
+    hooks: [commandHook(nameHook)],
   });
   settings.hooks.UserPromptSubmit.push({
-    hooks: [{ type: "command", command: toUnixPath(moodHook) }],
+    hooks: [commandHook(moodHook)],
   });
 
   ok("Hooks registered: PostToolUse (Bash + Write/Edit) + Stop (comment + suggest) + UserPromptSubmit (name + mood)");
+}
+
+function installRuntimeApp(): string {
+  const appDir = installRuntimeAppAtomically(PROJECT_ROOT, buddyStateDir(), (stagingDir) => {
+    const installArgs = ["install", "--production", "--ignore-scripts"];
+    const lockfile = join(stagingDir, "bun.lock");
+    if (existsSync(lockfile)) {
+      const bunVersion = execFileSync("bun", ["--version"], { encoding: "utf8" }).trim();
+      if (supportsTextLockfile(bunVersion)) {
+        installArgs.push("--frozen-lockfile");
+      } else {
+        rmSync(lockfile, { force: true });
+        warn(`Bun ${bunVersion} cannot read bun.lock (needs 1.2 or newer); installing dependencies unpinned. Upgrade Bun for a reproducible install.`);
+      }
+    }
+    try {
+      execFileSync("bun", installArgs, { cwd: stagingDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+    } catch (error) {
+      // Show bun's own output: without it a dependency failure reads as a bare
+      // "Command failed" and the user cannot tell what broke. The original
+      // error is not attached as `cause` because it carries the raw output.
+      const failure = error as { stdout?: string; stderr?: string };
+      const output = redactSecrets([failure.stdout, failure.stderr].filter(Boolean).join("\n").trim());
+      throw new Error(
+        `bun ${installArgs.join(" ")} failed${output ? `:\n${output}` : ""}\nThe previous runtime app, if any, was left in place.`,
+      );
+    }
+  });
+  ok(`Stable runtime installed: ${appDir}`);
+  return appDir;
 }
 
 // ─── Step 5: Ensure MCP tools are allowed ───────────────────────────────────
@@ -292,17 +354,18 @@ if (!preflight()) {
 }
 
 console.log("");
-info("Installing claude-buddy...\n");
+info("Installing coding-buddy...\n");
 
 const settings = loadSettings();
+const appDir = installRuntimeApp();
 
-installMcp();
+installMcp(appDir);
 installSkill();
 
 stripLegacyPopupHooks(settings);
-installStatusLine(settings);
+installStatusLine(settings, appDir);
 
-installHooks(settings);
+installHooks(settings, appDir);
 ensurePermissions(settings);
 saveSettings(settings);
 

@@ -1,5 +1,5 @@
 /**
- * XP and leveling system for claude-buddy.
+ * XP and leveling system for coding-buddy.
  *
  * Awards XP for coding events, computes levels, and manages unlockables.
  * State persists to xp.json in the buddy state directory.
@@ -14,7 +14,7 @@ import {
   saveCompanion,
   loadActiveSlot,
 } from "./state";
-import type { Species, Rarity } from "./engine";
+import type { Species, Rarity } from "../core/engine.ts"
 
 // ─── XP event types ───────────────────────────────────────────────────────────
 

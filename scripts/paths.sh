@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Path resolvers for claude-buddy shell scripts.
+# Path resolvers for coding-buddy shell scripts.
 #
 # Must stay in sync with server/path.ts. Source this file early:
 #   source "$(dirname "$0")/../scripts/paths.sh"
@@ -31,13 +31,30 @@ else
   CLAUDE_USER_CONFIG="$HOME/.claude.json"
 fi
 
-if [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
+if [[ -n "${CODING_BUDDY_USER_ID:-}" ]]; then
+  BUDDY_STATE_DIR="${CODING_BUDDY_STATE_DIR:-$HOME/.coding-buddy/shared}"
+elif [[ -n "${CLAUDE_CONFIG_DIR:-}" ]]; then
   BUDDY_STATE_DIR="$CLAUDE_CONFIG_DIR/buddy-state"
 else
   BUDDY_STATE_DIR="$HOME/.claude-buddy"
 fi
 
-export CLAUDE_CFG_DIR CLAUDE_SETTINGS_FILE CLAUDE_USER_CONFIG BUDDY_STATE_DIR
+# Per-session ID for namespacing transient buddy state files
+# (reaction.$SID.json, .last_reaction.$SID, etc.). Precedence:
+#   1. $CLAUDE_CODE_SESSION_ID — Claude Code sets a UUID per session and
+#      propagates it to every child process (hooks, MCP server, statusline).
+#      Shortened to first 8 chars for filename hygiene.
+#   2. $TMUX_PANE — legacy tmux-pane isolation, kept as a fallback.
+#   3. "default" — single-session world.
+if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+  BUDDY_SID="${CLAUDE_CODE_SESSION_ID:0:8}"
+elif [[ -n "${TMUX_PANE:-}" ]]; then
+  BUDDY_SID="${TMUX_PANE#%}"
+else
+  BUDDY_SID="default"
+fi
+
+export CLAUDE_CFG_DIR CLAUDE_SETTINGS_FILE CLAUDE_USER_CONFIG BUDDY_STATE_DIR BUDDY_SID
 
 # Windows: Chocolatey installs a PowerShell shim for jq that doesn't work in
 # Git Bash. If jq is not found on PATH, check the real Chocolatey binary path

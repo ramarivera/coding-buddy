@@ -1,9 +1,8 @@
 #!/usr/bin/env bun
 
 import { readFileSync } from "fs";
-import { execSync } from "child_process";
+import { execSync, spawnSync } from "child_process";
 import { join, resolve, dirname } from "path";
-import { homedir } from "os";
 
 const CYAN = "\x1b[36m";
 const GREEN = "\x1b[32m";
@@ -28,6 +27,37 @@ function tryExec(cmd: string, fallback = ""): string {
   }
 }
 
+function trySpawn(
+  command: string,
+  args: string[],
+  fallback = "",
+  cwd: string = PROJECT_ROOT,
+): string {
+  const result = spawnSync(command, args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "ignore"],
+  });
+  if (result.status !== 0) return fallback;
+  return result.stdout.trim();
+}
+
+function runCommand(
+  command: string,
+  args: string[],
+  options: {
+    cwd?: string;
+    stdio?: "ignore" | "inherit";
+  } = {},
+): boolean {
+  const result = spawnSync(command, args, {
+    cwd: options.cwd ?? PROJECT_ROOT,
+    encoding: "utf8",
+    stdio: ["ignore", options.stdio ?? "ignore", options.stdio ?? "ignore"],
+  });
+  return result.status === 0;
+}
+
 function getCurrentVersion(): string {
   try {
     const pkg = JSON.parse(readFileSync(join(PROJECT_ROOT, "package.json"), "utf8"));
@@ -40,7 +70,7 @@ function getCurrentVersion(): string {
 function banner() {
   console.log(`
 ${CYAN}╔══════════════════════════════════════════════════════════╗${NC}
-${CYAN}║${NC}  ${BOLD}claude-buddy upgrade${NC}                                    ${CYAN}║${NC}
+${CYAN}║${NC}  ${BOLD}coding-buddy upgrade${NC}                                    ${CYAN}║${NC}
 ${CYAN}╚══════════════════════════════════════════════════════════╝${NC}
 `);
 }
@@ -48,7 +78,7 @@ ${CYAN}╚═══════════════════════�
 function checkGitRepo(): boolean {
   const isRepo = tryExec("git rev-parse --is-inside-work-tree 2>/dev/null");
   if (isRepo !== "true") {
-    err("Not inside a git repository. Upgrade requires a git clone of claude-buddy.");
+    err("Not inside a git repository. Upgrade requires a git clone of coding-buddy.");
     return false;
   }
   return true;
@@ -61,15 +91,13 @@ function getRemoteBranch(): string {
 
 function checkForUpdates(branch: string): { hasUpdate: boolean; local: string; remote: string; commits: string[] } {
   info("Fetching latest from remote...\n");
-  try {
-    execSync("git fetch --quiet 2>/dev/null", { cwd: PROJECT_ROOT, stdio: "ignore" });
-  } catch {
+  if (!runCommand("git", ["fetch", "--quiet"])) {
     warn("git fetch failed — proceeding with cached remote state");
   }
 
   const local = tryExec("git rev-parse HEAD 2>/dev/null");
   const upstream = tryExec(`git rev-parse '@{upstream}' 2>/dev/null`);
-  const remote = upstream || tryExec(`git rev-parse origin/${branch} 2>/dev/null`);
+  const remote = upstream || trySpawn("git", ["rev-parse", `origin/${branch}`]);
 
   if (!local || !remote) {
     warn("Could not determine remote HEAD — no tracking branch configured");
@@ -81,8 +109,9 @@ function checkForUpdates(branch: string): { hasUpdate: boolean; local: string; r
     return { hasUpdate: false, local, remote, commits: [] };
   }
 
-  const commits = tryExec(
-    `git log --oneline ${local}..origin/${branch} 2>/dev/null`,
+  const commits = trySpawn(
+    "git",
+    ["log", "--oneline", `${local}..origin/${branch}`],
   ).split("\n").filter(Boolean);
 
   return { hasUpdate: true, local, remote, commits };
@@ -91,10 +120,12 @@ function checkForUpdates(branch: string): { hasUpdate: boolean; local: string; r
 function pullLatest(branch: string): boolean {
   info(`Pulling latest from origin/${branch}...`);
   try {
-    const output = execSync(`git pull --ff-only origin ${branch} 2>&1`, {
+    const result = spawnSync("git", ["pull", "--ff-only", "origin", branch], {
       cwd: PROJECT_ROOT,
       encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
     });
+    if (result.status !== 0) throw new Error(result.stderr || result.stdout || "unknown error");
     ok("Git pull successful");
     return true;
   } catch (e: any) {
@@ -108,7 +139,7 @@ function pullLatest(branch: string): boolean {
 function installDeps(): boolean {
   info("Installing dependencies...");
   try {
-    execSync("bun install 2>&1", { cwd: PROJECT_ROOT, stdio: "ignore" });
+    if (!runCommand("bun", ["install"])) throw new Error("bun install failed");
     ok("Dependencies installed");
     return true;
   } catch {
@@ -120,7 +151,9 @@ function installDeps(): boolean {
 function reinstallBuddy(): boolean {
   info("Re-running install-buddy to update integrations...\n");
   try {
-    execSync("bun run install-buddy 2>&1", { cwd: PROJECT_ROOT, stdio: "inherit" });
+    if (!runCommand("bun", ["run", "install-buddy"], { stdio: "inherit" })) {
+      throw new Error("install-buddy failed");
+    }
     return true;
   } catch {
     err("install-buddy failed");

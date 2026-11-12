@@ -30,7 +30,12 @@ import {
   rmSync,
 } from "fs";
 import { join } from "path";
-import type { Companion } from "./engine.ts";
+import { configuredSharedUserId } from "../core/identity.ts";
+import type { BuddyBones, Companion } from "../core/engine.ts"
+import type * as CoreEngine from "../core/engine.ts";
+import type * as Art from "./art.ts";
+import type * as MoodModule from "./mood.ts";
+import type * as XpModule from "./xp.ts";
 import {
   buddyStateDir,
   claudeSettingsPath,
@@ -38,20 +43,39 @@ import {
   toUnixPath,
 } from "./path.ts";
 
-export const STATE_DIR = buddyStateDir();
-const MANIFEST_FILE = join(STATE_DIR, "menagerie.json");
-const CONFIG_FILE = join(STATE_DIR, "config.json");
+// Resolved per call, never captured at import. ES modules are cached, so a
+// module-level `buddyStateDir()` pinned these paths to whatever
+// CLAUDE_CONFIG_DIR happened to be at *first* import. Once any file in a test
+// process had imported this module, every later redirect was silently ignored —
+// which is how `bun test` came to overwrite a user's live companion with a test
+// fixture. Individually the test files were clean; only running them together
+// leaked. A lazy lookup makes that class of bug impossible.
+const stateDir = () => buddyStateDir();
+const MANIFEST_FILE = () => join(stateDir(), "menagerie.json");
+const CONFIG_FILE = () => join(stateDir(), "config.json");
+const STATUS_FILE = () => join(stateDir(), "status.json");
 
-// ─── Session ID (PR #6: tmux session isolation) ─────────────────────────────
+// ─── Session ID (Claude Code session isolation, tmux pane fallback) ─────────
+//
+// Precedence:
+//   1. $CLAUDE_CODE_SESSION_ID — Claude Code sets a UUID per session and
+//      propagates it to the MCP server, hooks, and statusline. Shortened
+//      to first 8 chars to keep filenames readable.
+//   2. $TMUX_PANE — legacy tmux-pane isolation kept as a fallback.
+//   3. "default" — single-session world.
+//
+// Must match the bash equivalent in scripts/paths.sh.
 
 function sessionId(): string {
+  const ccSid = process.env.CLAUDE_CODE_SESSION_ID;
+  if (ccSid && ccSid.length > 0) return ccSid.slice(0, 8);
   const pane = process.env.TMUX_PANE;
   if (!pane) return "default";
   return pane.replace(/^%/, "");
 }
 
 function reactionFile(): string {
-  return join(STATE_DIR, `reaction.${sessionId()}.json`);
+  return join(stateDir(), `reaction.${sessionId()}.json`);
 }
 
 // ─── Manifest schema ─────────────────────────────────────────────────────────
@@ -69,7 +93,7 @@ function emptyManifest(): Manifest {
 
 function loadManifest(): Manifest {
   try {
-    const raw = readFileSync(MANIFEST_FILE, "utf8");
+    const raw = readFileSync(MANIFEST_FILE(), "utf8");
     const m = JSON.parse(raw) as Manifest;
     if (!m.companions) m.companions = {};
     return m;
@@ -79,10 +103,10 @@ function loadManifest(): Manifest {
 }
 
 function saveManifest(m: Manifest): void {
-  mkdirSync(STATE_DIR, { recursive: true });
-  const tmp = MANIFEST_FILE + ".tmp";
+  mkdirSync(stateDir(), { recursive: true });
+  const tmp = MANIFEST_FILE() + ".tmp";
   writeFileSync(tmp, JSON.stringify(m, null, 2));
-  renameSync(tmp, MANIFEST_FILE); // atomic on same filesystem
+  renameSync(tmp, MANIFEST_FILE()); // atomic on same filesystem
 }
 
 // ─── Slot helpers ────────────────────────────────────────────────────────────
@@ -105,7 +129,7 @@ export function slugify(name: string): string {
  */
 export function unusedName(): string {
   const { generateFallbackName } =
-    require("./reactions.ts") as typeof import("./reactions.ts");
+    require("../core/reactions.ts") as typeof import("../core/reactions.ts");
   const taken = new Set(Object.keys(loadManifest().companions));
   for (let i = 0; i < 50; i++) {
     const n = generateFallbackName();
@@ -208,13 +232,13 @@ export function saveCompanion(companion: Companion): void {
 // ─── Migration: legacy companion.json -> single manifest ────────────────────
 
 function migrateIfNeeded(): void {
-  if (existsSync(MANIFEST_FILE)) return;
+  if (existsSync(MANIFEST_FILE())) return;
 
   const companions: Record<string, Companion> = {};
   let active = "buddy";
 
   // Absorb menagerie/<slot>.json files
-  const menagerieDir = join(STATE_DIR, "menagerie");
+  const menagerieDir = join(stateDir(), "menagerie");
   if (existsSync(menagerieDir)) {
     try {
       for (const f of readdirSync(menagerieDir).filter((f) =>
@@ -235,7 +259,7 @@ function migrateIfNeeded(): void {
   }
 
   // Absorb legacy companion.json
-  const legacyFile = join(STATE_DIR, "companion.json");
+  const legacyFile = join(stateDir(), "companion.json");
   if (existsSync(legacyFile) && Object.keys(companions).length === 0) {
     try {
       const c: Companion = JSON.parse(readFileSync(legacyFile, "utf8"));
@@ -248,7 +272,7 @@ function migrateIfNeeded(): void {
   }
 
   // Read active pointer if it exists
-  const activeFile = join(STATE_DIR, "active");
+  const activeFile = join(stateDir(), "active");
   if (existsSync(activeFile)) {
     try {
       const a = readFileSync(activeFile, "utf8").trim();
@@ -267,32 +291,63 @@ function migrateIfNeeded(): void {
 
 // ─── Reaction state (session-scoped for tmux isolation) ──────────────────────
 
+/**
+ * Where a reaction came from. Proves the bubble content isn't canned when
+ * source === "tool" or "comment"; "fallback" means a hook picked a pool line
+ * because no model-authored text surfaced; "none" is the default for legacy
+ * files written before the field existed.
+ *
+ *   tool      — buddy_react MCP tool call (Claude wrote it; renders nowhere)
+ *   comment   — old `<!-- buddy: ... -->` HTML comment (legacy / older CC)
+ *   fallback  — Stop hook generated it from the canned pool
+ *   none      — unknown / legacy file without a source field
+ */
+export type ReactionSource = "tool" | "comment" | "fallback" | "none";
+
 export interface ReactionState {
   reaction: string;
   timestamp: number;
   reason: string;
+  /** Provenance — see ReactionSource. Defaults to "none" on legacy files. */
+  source?: ReactionSource;
 }
 
 export function loadReaction(): ReactionState | null {
   try {
     const data: ReactionState = JSON.parse(readFileSync(reactionFile(), "utf8"));
     const { reactionTTL } = loadConfig();
-    if (reactionTTL > 0 && Date.now() - data.timestamp > reactionTTL * 1000) return null;
+if (reactionTTL > 0 && Date.now() - data.timestamp > reactionTTL * 1000) {
+  rmSync(reactionFile(), { force: true });
+  return null;
+}
+if (data.source === undefined) data.source = "none";
     return data;
   } catch {
     return null;
   }
 }
 
-export function saveReaction(reaction: string, reason: string): void {
-  mkdirSync(STATE_DIR, { recursive: true });
-  const state: ReactionState = { reaction, timestamp: Date.now(), reason };
-  writeFileSync(reactionFile(), JSON.stringify(state));
+export function saveReaction(
+  reaction: string,
+  reason: string,
+  source: ReactionSource = "fallback",
+): void {
+  mkdirSync(stateDir(), { recursive: true });
+  const state: ReactionState = { reaction, timestamp: Date.now(), reason, source };
+  // Atomic via tmp + rename — torn reads on the reaction file would
+  // make the Stop hook's freshness check see an absent file, pinning
+  // a stale tool reaction into the bubble forever.
+  const target = reactionFile();
+  const tmp = `${target}.tmp.${process.pid}.${Date.now()}`;
+  writeFileSync(tmp, JSON.stringify(state));
+  renameSync(tmp, target);
 }
 
 // ─── Identity resolution ─────────────────────────────────────────────────────
 
 export function resolveUserId(): string {
+  const sharedUserId = configuredSharedUserId();
+  if (sharedUserId) return sharedUserId;
   try {
     const claudeJson = JSON.parse(readFileSync(claudeUserConfigPath(), "utf8"));
     return claudeJson.oauthAccount?.accountUuid ?? claudeJson.userID ?? "anon";
@@ -300,9 +355,7 @@ export function resolveUserId(): string {
     return "anon";
   }
 }
-
 // ─── Config persistence (PR #6: tmux popup settings) ─────────────────────────
-
 export interface BuddyConfig {
   commentCooldown: number;
   reactionTTL: number;
@@ -310,9 +363,13 @@ export interface BuddyConfig {
   bubblePosition: "top" | "left";
   showRarity: boolean;
   statusLineEnabled: boolean;
+  statuslineDensity: "auto" | "full" | "compact" | "minimal";
+  statuslineWidthAdjust: number;
   bubbleWidth: number;
   bubbleMargin: number;
   useCombinedStatus: boolean;
+  subStatusCommand?: string;
+  subStatusRefreshSeconds: number;
   rainbowColors?: string[];
   theme: "dark" | "light" | "auto";
   moodEnabled: boolean;
@@ -320,17 +377,22 @@ export interface BuddyConfig {
   suggestionsEnabled: boolean;
   suggestionCooldown: number;
 }
-
 const DEFAULT_CONFIG: BuddyConfig = {
   commentCooldown: 30,
-  reactionTTL: 0,
+  // Long enough that a reaction survives the turn you were reading when it was
+  // written, short enough that yesterday's bubble is never still on screen.
+  // Set to 0 to opt out and keep reactions until they are replaced.
+  reactionTTL: 900,
   bubbleStyle: "classic",
   bubblePosition: "top",
   showRarity: true,
   statusLineEnabled: false,
+  statuslineDensity: "auto",
+  statuslineWidthAdjust: 0,
   bubbleWidth: 28,
   bubbleMargin: 8,
   useCombinedStatus: false,
+  subStatusRefreshSeconds: 15,
   theme: "auto",
   moodEnabled: true,
   memoryEnabled: true,
@@ -338,20 +400,43 @@ const DEFAULT_CONFIG: BuddyConfig = {
   suggestionCooldown: 180,
 };
 
+export function normalizeConfig(data: unknown): BuddyConfig {
+  const values = data && typeof data === "object" && !Array.isArray(data)
+    ? data
+    : {};
+  const config = { ...DEFAULT_CONFIG, ...values } as BuddyConfig;
+  if (typeof config.subStatusCommand !== "string" || config.subStatusCommand.trim() === "") {
+    delete config.subStatusCommand;
+  }
+  if (!Number.isInteger(config.subStatusRefreshSeconds) || config.subStatusRefreshSeconds <= 0) {
+    config.subStatusRefreshSeconds = DEFAULT_CONFIG.subStatusRefreshSeconds;
+  }
+  if (!Number.isInteger(config.reactionTTL) || config.reactionTTL < 0) {
+    config.reactionTTL = DEFAULT_CONFIG.reactionTTL;
+  }
+  if (!Number.isInteger(config.statuslineWidthAdjust)) {
+    config.statuslineWidthAdjust = DEFAULT_CONFIG.statuslineWidthAdjust;
+  }
+  const allowedDensities: BuddyConfig["statuslineDensity"][] = ["auto", "full", "compact", "minimal"];
+  if (!allowedDensities.includes(config.statuslineDensity)) {
+    config.statuslineDensity = DEFAULT_CONFIG.statuslineDensity;
+  }
+  return config;
+}
+
 export function loadConfig(): BuddyConfig {
   try {
-    const data = JSON.parse(readFileSync(CONFIG_FILE, "utf8"));
-    return { ...DEFAULT_CONFIG, ...data };
+    return normalizeConfig(JSON.parse(readFileSync(CONFIG_FILE(), "utf8")));
   } catch {
-    return { ...DEFAULT_CONFIG };
+    return normalizeConfig({});
   }
 }
 
 export function saveConfig(config: Partial<BuddyConfig>): BuddyConfig {
-  mkdirSync(STATE_DIR, { recursive: true });
+  mkdirSync(stateDir(), { recursive: true });
   const current = loadConfig();
   const merged = { ...current, ...config };
-  writeFileSync(CONFIG_FILE, JSON.stringify(merged, null, 2));
+  writeFileSync(CONFIG_FILE(), JSON.stringify(merged, null, 2));
   return merged;
 }
 
@@ -369,13 +454,41 @@ export interface StatusState {
   reaction: string;
   muted: boolean;
   achievement: string;
+  /** Epoch ms the achievement was awarded; 0 when none. The statusline expires
+   *  the trophy banner on this, otherwise it latches into the shared
+   *  status.json and pins every session's bubble to the last unlock. */
+  achievementAt: number;
   frames: string[];
+  compactFrames: string[];
+  minimalFrames: string[];
   frameSequence: number[];
   level: number;
   xp: number;
   mood: string;
 }
 
+// Density frame fallbacks used when server/art.ts has not yet been updated
+// to emit compactFrames/minimalFrames. The art worker owns the pre-rendered
+// density frames; state.ts only derives a degraded fallback from the full
+// frames so old/new status.json remains renderable.
+function deriveCompactFrames(fullFrames: string[]): string[] {
+  return fullFrames.map((body) => {
+    const lines = body.split("\n");
+    const selected: string[] = [];
+    for (const line of lines) {
+      if (selected.length >= 3) break;
+      if (line.trim() !== "") selected.push(line);
+    }
+    while (selected.length < 3) selected.push("");
+    return selected.join("\n");
+  });
+}
+
+function deriveMinimalFrames(bones: BuddyBones, eye: string): string[] {
+  const { renderFace } = require("../core/engine.ts") as typeof CoreEngine;
+  const face = renderFace(bones.species, eye);
+  return Array.from({ length: 4 }, () => face);
+}
 export function writeStatusState(
   companion: Companion,
   reaction?: string,
@@ -384,17 +497,32 @@ export function writeStatusState(
   level?: number,
   xp?: number,
 ): void {
-  mkdirSync(STATE_DIR, { recursive: true });
-  const { renderFace, RARITY_STARS } =
-    require("./engine.ts") as typeof import("./engine.ts");
+  mkdirSync(stateDir(), { recursive: true });
+  const { renderFace, RARITY_STARS, resolveEyeGlyph } =
+    require("../core/engine.ts") as typeof CoreEngine;
   const { getStatusFrames } =
-    require("./art.ts") as typeof import("./art.ts");
-  const { frames, frameSequence } = getStatusFrames(companion.bones);
+    require("./art.ts") as typeof Art;
+  const safeEye = resolveEyeGlyph(companion.bones.eye);
+  const artResult = getStatusFrames(companion.bones) as {
+    frames: string[];
+    frameSequence: number[];
+    compactFrames?: string[];
+    minimalFrames?: string[];
+  };
+  const { frames, frameSequence } = artResult;
+  const compactFrames =
+    artResult.compactFrames && artResult.compactFrames.length > 0
+      ? artResult.compactFrames
+      : deriveCompactFrames(frames);
+  const minimalFrames =
+    artResult.minimalFrames && artResult.minimalFrames.length > 0
+      ? artResult.minimalFrames
+      : deriveMinimalFrames(companion.bones, safeEye);
   let xpLevel = level ?? 1;
   let xpTotal = xp ?? 0;
   let moodStr = "focused";
   try {
-    const { getXpState } = require("./xp.ts") as typeof import("./xp.ts");
+    const { getXpState } = require("./xp.ts") as typeof XpModule;
     const xpState = getXpState();
     xpLevel = xpState.level;
     xpTotal = xpState.totalXp;
@@ -402,7 +530,7 @@ export function writeStatusState(
     // XP state is optional during first install / version skew.
   }
   try {
-    const { getMood } = require("./mood.ts") as typeof import("./mood.ts");
+    const { getMood } = require("./mood.ts") as typeof MoodModule;
     moodStr = getMood().current;
   } catch {
     // Mood state is optional during first install / version skew.
@@ -412,26 +540,37 @@ export function writeStatusState(
     species: companion.bones.species,
     rarity: companion.bones.rarity,
     stars: RARITY_STARS[companion.bones.rarity],
-    face: renderFace(companion.bones.species, companion.bones.eye),
-    eye: companion.bones.eye,
+    face: renderFace(companion.bones.species, safeEye),
+    eye: safeEye,
     shiny: companion.bones.shiny,
     hat: companion.bones.hat,
-    reaction: reaction ?? "",
+    reaction: "",
     muted: muted ?? false,
     achievement: achievement ?? "",
+    achievementAt: achievement ? Date.now() : 0,
     frames,
+    compactFrames,
+    minimalFrames,
     frameSequence,
     level: xpLevel,
     xp: xpTotal,
     mood: moodStr,
   };
-  writeFileSync(join(STATE_DIR, "status.json"), JSON.stringify(state));
+  // Atomic: the statusline reads this file on a timer, so a plain write can
+  // be observed half-flushed and blank the companion for a tick.
+  const statusTmp = `${STATUS_FILE()}.tmp`;
+  writeFileSync(statusTmp, JSON.stringify(state));
+  renameSync(statusTmp, STATUS_FILE());
+  // writeStatusState no longer calls saveReaction implicitly. Callers
+  // that need a reaction file do so explicitly with the correct
+  // `source` tag — the old implicit save had no source argument and
+  // its default later flipped from "tool" to "fallback", either way
+  // overwriting provenance of hatch / pet / unmute writes with whatever
+  // happened to be the default. /buddy stats stopped lying when
+  // this call was removed.
 }
 
-// ─── Claude Code settings.json patching (for buddy_statusline tool) ──────────
-
 export const CLAUDE_SETTINGS_PATH = claudeSettingsPath();
-
 /**
  * Write settings.statusLine pointing to the given buddy-status script.
  * Atomic via tmp + rename. Returns false if settings.json is unreachable.
@@ -495,6 +634,7 @@ const TRANSIENT_PREFIXES = [
   "reaction.",
   ".last_reaction.",
   ".last_comment.",
+  ".substatus.",
 ];
 
 /**
@@ -505,11 +645,11 @@ const TRANSIENT_PREFIXES = [
  *
  * Companion data (menagerie.json, status.json, config.json) is intentionally
  * kept — users reinstalling get their buddy back. Call-sites that want a full
- * wipe should delete STATE_DIR themselves after calling this.
+ * wipe should delete stateDir() themselves after calling this.
  */
 export function cleanupPluginState(
   settingsPath: string = CLAUDE_SETTINGS_PATH,
-  stateDir: string = STATE_DIR,
+  stateDir: string = buddyStateDir(),
 ): CleanupResult {
   const statusLineRemoved = unsetBuddyStatusLine(settingsPath);
 

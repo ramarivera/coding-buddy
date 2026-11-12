@@ -3,14 +3,26 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "bundler",
-    "types": ["bun-types"],
+    "types": [
+      "bun-types"
+    ],
     "strict": true,
     "skipLibCheck": true,
     "esModuleInterop": true,
     "noEmit": true,
     "allowImportingTsExtensions": true,
     "moduleDetection": "force",
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    "resolveJsonModule": true
   },
-  "include": ["server/**/*.ts", "cli/**/*.ts", "cli/**/*.tsx"]
+  "include": [
+    "server/**/*.ts",
+    "cli/**/*.ts",
+    "cli/**/*.tsx",
+    "core/**/*.ts",
+    "adapters/**/*.ts",
+    ".pi/**/*.ts",
+    ".omp/**/*.ts",
+    "scripts/**/*.ts"
+  ]
 }

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # statusline/combined-status.sh
 # Two-panel status line: rate-limit stats left, buddy art right.
-# buddy-status.sh is intentionally untouched (kept clean for upstream PR).
+# buddy-status.sh renders the buddy panel and shared cached sub-status below it.
 
 [ "$BUDDY_SHELL" = "1" ] && exit 0
 
@@ -54,7 +54,7 @@ except Exception:
 " 2>/dev/null)
 
 # ── Capture buddy art (buddy reads state files, not stdin) ───────────────────
-BUDDY_OUTPUT=$("$BUDDY_SCRIPT" </dev/null 2>/dev/null)
+BUDDY_OUTPUT=$(printf '%s' "$STDIN_DATA" | "$BUDDY_SCRIPT" 2>/dev/null)
 
 # No buddy output → exit silently (muted, no state, etc.)
 [ -z "$BUDDY_OUTPUT" ] && exit 0
@@ -99,9 +99,11 @@ def fmt_stat(label, pct, reset):
     c = color_for(pct)
     pct_str = f'{round(pct):3d}%' if pct is not None else '  -%'
     bar = build_bar(pct)
-    text = f'{DIM}{label}{NC} {c}{pct_str}{NC} {bar} {c}↻{reset}{NC}'
-    visual_width = 2 + 1 + 4 + 1 + 10 + 1 + 1 + len(reset)
-    return text, visual_width
+    bar_text = f'{DIM}{label}{NC} {c}{pct_str}{NC} {bar}'
+    bar_width = 2 + 1 + 4 + 1 + 10
+    timer_text = f'   {c}↻{reset}{NC}'
+    timer_width = 3 + 1 + len(reset)
+    return (bar_text, bar_width), (timer_text, timer_width)
 
 try:
     stats = json.loads(os.environ.get('STATS_JSON', '{}'))
@@ -112,14 +114,13 @@ lines = sys.stdin.read().splitlines()
 n = len(lines)
 center = 1 
 
-stat_items = [
-    fmt_stat('5h', stats.get('sess_pct'), stats.get('sess_reset', '--')),
-    fmt_stat('7d', stats.get('week_pct'), stats.get('week_reset', '--')),
-]
+sess = fmt_stat('5h', stats.get('sess_pct'), stats.get('sess_reset', '--'))
+week = fmt_stat('7d', stats.get('week_pct'), stats.get('week_reset', '--'))
+stat_items = [sess[0], sess[1], week[0], week[1]]
 
 for i, line in enumerate(lines):
     si = i - center
-    if 0 <= si < 2 and line.startswith(BRAILLE):
+    if 0 <= si < 4 and line.startswith(BRAILLE):
         stat_text, stat_width = stat_items[si]
         after_braille = line[1:]
         num_spaces = len(after_braille) - len(after_braille.lstrip(' '))

@@ -4,13 +4,14 @@
 //   1. Path normalization (Windows compat) — toUnixPath().
 //   2. Resolution of Claude Code config / state paths — claudeConfigDir,
 //      claudeSettingsPath, claudeSkillDir, claudeUserConfigPath, buddyStateDir.
-//      These honor CLAUDE_CONFIG_DIR so claude-buddy works with Claude Code's
+//      These honor CLAUDE_CONFIG_DIR so coding-buddy works with Claude Code's
 //      multi-account layout (one CLAUDE_CONFIG_DIR per profile).
 //
 // The shell counterpart of (2) lives in scripts/paths.sh and MUST stay in sync.
 
 import { join } from "path";
 import { homedir } from "os";
+import { sharedStateDir } from "../core/identity.ts";
 
 // ─── (1) Path normalization ─────────────────────────────────────────────────
 
@@ -76,7 +77,14 @@ export function claudeUserConfigPath(): string {
 }
 
 export function buddyStateDir(): string {
+  const shared = sharedStateDir();
+  if (shared) return shared;
   const cfgDir = envDir("CLAUDE_CONFIG_DIR");
   if (cfgDir) return join(cfgDir, "buddy-state");
   return join(homedir(), ".claude-buddy");
+}
+
+/** Stable per-profile runtime copy used by installer registrations. */
+export function buddyAppDir(): string {
+  return join(buddyStateDir(), "app");
 }

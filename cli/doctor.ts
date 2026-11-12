@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * claude-buddy doctor — comprehensive diagnostic report
+ * coding-buddy doctor — comprehensive diagnostic report
  *
  * Run: bun run doctor
  *
@@ -68,7 +68,7 @@ function tryParseJson(text: string | null): any | null {
 
 console.log(`${CYAN}${BOLD}
 ╔══════════════════════════════════════════════════════════╗
-║  claude-buddy doctor — diagnostic report                 ║
+║  coding-buddy doctor — diagnostic report                 ║
 ╚══════════════════════════════════════════════════════════╝${NC}`);
 
 console.log(`\n${DIM}Copy this entire output into your GitHub issue.${NC}`);
@@ -108,9 +108,9 @@ row(`${STATE_DIR} exists`, existsSync(STATE_DIR) ? "yes" : "no");
 row("Project root", PROJECT_ROOT);
 row("Status script exists", existsSync(STATUS_SCRIPT) ? "yes" : `${RED}no${NC}`);
 
-// ─── claude-buddy state ─────────────────────────────────────────────────────
+// ─── coding-buddy state ─────────────────────────────────────────────────────
 
-section("claude-buddy state");
+section("coding-buddy state");
 const menagerie = tryParseJson(tryRead(join(STATE_DIR, "menagerie.json")));
 const status = tryParseJson(tryRead(join(STATE_DIR, "status.json")));
 

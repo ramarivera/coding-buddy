@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 /**
- * claude-buddy disable — temporarily deactivate buddy without losing data
+ * coding-buddy disable — temporarily deactivate buddy without losing data
  *
  * Removes: MCP server, status line, hooks
  * Keeps: companion data, backups, skill files
@@ -28,7 +28,7 @@ const CLAUDE_JSON = claudeUserConfigPath();
 const SETTINGS = claudeSettingsPath();
 const STATE_DIR = buddyStateDir();
 
-console.log(`\n${BOLD}Disabling claude-buddy...${NC}\n`);
+console.log(`\n${BOLD}Disabling coding-buddy...${NC}\n`);
 
 // 1. Remove MCP server from ~/.claude.json
 try {
@@ -61,7 +61,7 @@ try {
       if (settings.hooks[hookType]) {
         const before = settings.hooks[hookType].length;
         settings.hooks[hookType] = settings.hooks[hookType].filter(
-          (h: any) => !h.hooks?.some((hh: any) => hh.command?.includes("claude-buddy")),
+          (h: any) => !h.hooks?.some((hh: any) => hh.command?.includes("coding-buddy") || hh.command?.includes("claude-buddy")),
         );
         if (settings.hooks[hookType].length < before) changed = true;
         if (settings.hooks[hookType].length === 0) delete settings.hooks[hookType];

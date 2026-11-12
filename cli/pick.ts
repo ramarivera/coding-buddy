@@ -17,13 +17,11 @@
 
 import {
   loadActiveSlot, saveActiveSlot, listCompanionSlots,
-  loadCompanionSlot, saveCompanionSlot, slugify, unusedName, writeStatusState,
+  loadCompanionSlot, saveCompanionSlot, deleteCompanionSlot, slugify, unusedName, writeStatusState,
 } from "../server/state.ts";
-import {
-  generateBones, generatePersonality, SPECIES, RARITIES, STAT_NAMES, RARITY_STARS, EYES, HATS,
-  type Species, type Rarity, type StatName, type Eye, type Hat,
-  type BuddyBones, type Companion,
-} from "../server/engine.ts";
+import { generateBones, generatePersonality, SPECIES, RARITIES, STAT_NAMES, RARITY_STARS, EYES, HATS,
+type Species, type Rarity, type StatName, type Eye, type Hat,
+type BuddyBones, type Companion, } from "../core/engine.ts"
 import { renderCompanionCard } from "../server/art.ts";
 import { randomBytes } from "crypto";
 
@@ -125,6 +123,7 @@ interface State {
   searchStatus:  string;
   nameInput:     string;
   pendingResult: BuddyResult | null;
+  confirmDelete: boolean;
   message:       string;
 }
 
@@ -143,6 +142,7 @@ function fresh(): State {
     searchStatus:  "",
     nameInput:     "",
     pendingResult: null,
+    confirmDelete: false,
     message:       "",
   };
 }
@@ -153,7 +153,7 @@ const LEFT_W = 36;
 
 function savedPane(s: State): string[] {
   const lines: string[] = [];
-  lines.push(`${B}  Your Menagerie${N}  ${GR}[s] search${N}`);
+  lines.push(`${B}  Your Menagerie${N}  ${GR}[s] search  [d] remove${N}`);
   lines.push(GR + "  " + "─".repeat(LEFT_W - 2) + N);
 
   if (s.savedSlots.length === 0) {
@@ -176,6 +176,10 @@ function savedPane(s: State): string[] {
   }
 
   lines.push(GR + "  " + "─".repeat(LEFT_W - 2) + N);
+  if (s.confirmDelete) {
+    const entry = s.savedSlots[s.savedCursor];
+    lines.push(`  ${YL}remove ${B}${entry?.companion.name ?? "?"}${N}${YL}? [d/y] yes  [any] no${N}`);
+  }
   return lines;
 }
 
@@ -275,9 +279,7 @@ function previewPane(s: State): string[] {
   }
 
   if (!c) return [`  ${GR}no preview${N}`];
-  // Calculate available width for the right pane (total cols - left pane - separator)
-  const cols = Math.max(80, process.stdout.columns || 80);
-  const rightW = cols - LEFT_W - 3;
+  const rightW = 34;
   return renderCompanionCard(c.bones, c.name, c.personality, undefined, 0, rightW).split("\n");
 }
 
@@ -298,7 +300,7 @@ function drawScreen(s: State): void {
   let out = "\x1b[2J\x1b[H"; // clear + home
 
   // Title bar
-  const title    = ` claude-buddy pick `;
+  const title    = ` coding-buddy pick `;
   const fill     = "─".repeat(Math.max(0, cols - title.length - 2));
   out += `${CY}─${B}${title}${N}${CY}${fill}─${N}\n`;
 
@@ -311,7 +313,7 @@ function drawScreen(s: State): void {
 
   // Footer — mode-specific help
   const helpText =
-    s.mode === "saved"     ? "↑↓ navigate  enter summon  r random  s search  q quit" :
+    s.mode === "saved"     ? "↑↓ navigate  enter summon  r random  s search  d remove  q quit" :
     s.mode === "criteria"  ? "↑↓ field  ←→ value  enter search  esc back" :
     s.mode === "searching" ? "any key to stop and show results so far" :
     s.mode === "results"   ? "↑↓ navigate  enter name+save  esc back  q quit" :
@@ -351,7 +353,7 @@ async function runSearch(s: State): Promise<void> {
 
   // Scale attempt budget to rarity difficulty
   const maxAttempts =
-    wantRa === "legendary" ? 200_000_000 :
+    wantRa === "legendary" ? 10_000_000_000 :
     wantRa === "epic"      ?  50_000_000 :
     wantRa === "rare"      ?  20_000_000 : 10_000_000;
 
@@ -440,12 +442,26 @@ function onKey(key: string, s: State): boolean {
     }
 
     case "saved": {
+      if (s.confirmDelete) {
+        if (key === "d" || key === "y") {
+          const entry = s.savedSlots[s.savedCursor];
+          if (entry) {
+            deleteCompanionSlot(entry.slot);
+            s.savedSlots  = listCompanionSlots();
+            s.activeSlot  = loadActiveSlot();
+            s.savedCursor = clamp(s.savedCursor, 0, Math.max(0, s.savedSlots.length - 1));
+            s.message     = `✗ ${entry.companion.name} removed`;
+          }
+        }
+        s.confirmDelete = false;
+        break;
+      }
       if (key === "q")                          return true;
       if (key === "s")                          { s.mode = "criteria"; break; }
+      if (key === "d" && s.savedSlots.length > 0) { s.confirmDelete = true; break; }
       if (key === "\x1b[A" || key === "k")      s.savedCursor = clamp(s.savedCursor - 1, 0, s.savedSlots.length - 1);
       else if (key === "\x1b[B" || key === "j") s.savedCursor = clamp(s.savedCursor + 1, 0, s.savedSlots.length - 1);
       else if (key === "r") {
-        // Random pick from menagerie
         if (s.savedSlots.length > 0) {
           const entry = s.savedSlots[Math.floor(Math.random() * s.savedSlots.length)];
           s.savedCursor = s.savedSlots.indexOf(entry);

@@ -1,36 +1,22 @@
 import { describe, test, expect } from "bun:test";
 import {
-  getReaction,
+  extractGeneratedPersonality,
   generateFallbackName,
   generatePersonalityPrompt,
+  getReaction,
+  isNameMentioned,
+  REACTIONS,
+  type ReactionReason,
 } from "./reactions.ts";
 import { SPECIES, RARITIES, STAT_NAMES } from "./engine.ts";
 
-const REASONS = [
-  "hatch", "pet", "error", "test-fail", "large-diff", "turn", "idle",
-  "commit", "push", "merge-conflict", "branch", "rebase", "stash", "tag",
-  "late-night", "early-morning", "long-session", "marathon", "friday", "weekend", "monday",
-  "lint-fail", "type-error", "build-fail", "security-warning", "deprecation",
-  "frustrated", "happy", "stuck", "sarcastic",
-  "many-edits", "delete-file", "large-file", "create-file",
-  "all-green", "deploy", "release", "coverage",
-  "debug-loop", "write-spree", "search-heavy",
-  "recovery-from-error", "recovery-from-test-fail",
-  "recovery-from-build-fail", "recovery-from-merge-conflict",
-  "late-night-error", "late-night-commit", "friday-push",
-  "marathon-error", "weekend-conflict", "build-after-push", "marathon-test-fail",
-  "lang-python", "lang-typescript", "lang-rust", "lang-go",
-  "lang-java", "lang-ruby", "lang-php", "lang-c",
-  "lang-cpp", "lang-haskell", "lang-swift", "lang-elixir",
-  "lang-zig", "lang-kotlin",
-  "streak-3", "streak-5", "streak-10", "streak-20",
-  "new-year", "valentines", "pi-day", "april-fools",
-  "halloween", "christmas", "new-years-eve", "spooky-season",
-  "success",
-  "regex-file", "css-file", "sql-file", "docker-file", "ci-file", "lock-file",
-  "env-file", "test-file", "doc-file", "config-file", "binary-file", "gitignore",
-  "makefile", "readme", "package-file", "proto-file",
-] as const;
+const INTENTIONALLY_EMPTY_REACTIONS: ReactionReason[] = [
+  "snark", "chaos", "patience", "debugging", "wisdom",
+];
+
+const REASONS = (Object.keys(REACTIONS) as ReactionReason[]).filter(
+  (reason) => !INTENTIONALLY_EMPTY_REACTIONS.includes(reason),
+);
 
 describe("getReaction", () => {
   test("returns a non-empty string for every (reason, species, rarity) combo", () => {
@@ -350,5 +336,63 @@ describe("generatePersonalityPrompt", () => {
     for (const n of STAT_NAMES) {
       expect(prompt).toContain(`${n}:50`);
     }
+  });
+});
+
+describe("extractGeneratedPersonality", () => {
+  test("extracts and trims a valid personality", () => {
+    const json = JSON.stringify({ name: "Spark", personality: "  A curious coder.  " });
+    expect(extractGeneratedPersonality(json)).toBe("A curious coder.");
+  });
+
+  test("extracts personality from JSON embedded in prose", () => {
+    const wrapped = `Here is the result:\n\`\`\`json\n${JSON.stringify({ personality: "Embedded." })}\n\`\`\``;
+    expect(extractGeneratedPersonality(wrapped)).toBe("Embedded.");
+  });
+
+  test("returns null for non-JSON or missing personality", () => {
+    expect(extractGeneratedPersonality("not json")).toBeNull();
+    expect(extractGeneratedPersonality(JSON.stringify({ name: "Spark" }))).toBeNull();
+    expect(extractGeneratedPersonality(JSON.stringify({ personality: "" }))).toBeNull();
+    expect(extractGeneratedPersonality(JSON.stringify({ personality: "   " }))).toBeNull();
+  });
+
+  test("rejects personalities that exceed the limit", () => {
+    const long = "x".repeat(501);
+    expect(extractGeneratedPersonality(JSON.stringify({ personality: long }))).toBeNull();
+  });
+
+  test("rejects non-string or wrongly typed personality", () => {
+    expect(extractGeneratedPersonality(JSON.stringify({ personality: 42 }))).toBeNull();
+    expect(extractGeneratedPersonality("[1, 2, 3]")).toBeNull();
+  });
+});
+
+describe("isNameMentioned", () => {
+  test("matches names delimited by punctuation, spaces, or string boundaries", () => {
+    expect(isNameMentioned("hello Ember!", "Ember")).toBe(true);
+    expect(isNameMentioned("Ember, can you help?", "Ember")).toBe(true);
+    expect(isNameMentioned("good to see you, Ember.", "Ember")).toBe(true);
+    expect(isNameMentioned("@Ember", "Ember")).toBe(true);
+    expect(isNameMentioned(" Ember ", "Ember")).toBe(true);
+  });
+
+  test("matches names ending in punctuation or emoji", () => {
+    expect(isNameMentioned("I love C++", "C++")).toBe(true);
+    expect(isNameMentioned("C++ is great", "C++")).toBe(true);
+    expect(isNameMentioned("hi C++, how are you?", "C++")).toBe(true);
+    expect(isNameMentioned("Blinky✨ did it", "Blinky✨")).toBe(true);
+    expect(isNameMentioned("Blinky✨", "Blinky✨")).toBe(true);
+  });
+
+  test("is case-insensitive", () => {
+    expect(isNameMentioned("Hello EMBER", "Ember")).toBe(true);
+    expect(isNameMentioned("ember", "Ember")).toBe(true);
+  });
+
+  test("does not match inside larger words or adjacent word chars", () => {
+    expect(isNameMentioned("Emberish", "Ember")).toBe(false);
+    expect(isNameMentioned("notEmber", "Ember")).toBe(false);
+    expect(isNameMentioned("Ember2", "Ember")).toBe(false);
   });
 });

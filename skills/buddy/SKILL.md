@@ -7,11 +7,11 @@ allowed-tools: mcp__claude_buddy__*, Bash
 
 # Buddy — Your Coding Companion
 
-Handle the user's `/buddy` command using the claude-buddy MCP tools.
+Handle the user's `/buddy` command using the coding-buddy MCP tools.
 
 ## Fallback: MCP Tools Unavailable
 
-**Before routing any command, check whether `mcp__claude_buddy__*` tools are registered in this session.** If they are NOT — Claude Code was unable to start the claude-buddy MCP server — do not attempt to call any buddy tool. The tool calls will fail with an unhelpful "tool not found" error. Instead, run this diagnostic and report the result to the user so they can fix the underlying cause:
+**Before routing any command, check whether `mcp__claude_buddy__*` tools are registered in this session.** If they are NOT — Claude Code was unable to start the coding-buddy MCP server — do not attempt to call any buddy tool. The tool calls will fail with an unhelpful "tool not found" error. Instead, run this diagnostic and report the result to the user so they can fix the underlying cause:
 
 1. Check bun availability:
    ```bash
@@ -21,13 +21,13 @@ Handle the user's `/buddy` command using the claude-buddy MCP tools.
 
 2. If bun IS present, run the launcher directly to capture whatever error it emits. The launcher path depends on which marketplace installed the plugin; locate it first:
    ```bash
-   find ~/.claude/plugins/cache -name mcp-launcher.sh -path '*claude-buddy*' 2>/dev/null
+   find ~/.claude/plugins/cache -name mcp-launcher.sh -path '*coding-buddy*' 2>/dev/null
    ```
    Then execute the first result with stdin closed so it exits cleanly:
    ```bash
    <launcher-path> < /dev/null; echo "exit=$?"
    ```
-   Report the stdout/stderr and exit code verbatim. Common causes: missing `bun`, corrupted plugin cache (suggest `claude plugin uninstall claude-buddy@claude-buddy && claude plugin install claude-buddy@claude-buddy`), or a `bun`-level error loading `server/index.ts`.
+   Common causes: missing `bun`, corrupted plugin cache (suggest `claude plugin uninstall coding-buddy@coding-buddy && claude plugin install coding-buddy@coding-buddy`), or a `bun`-level error loading `server/index.ts`.
 
 3. If `$CLAUDE_CONFIG_DIR` is set in the environment, use that directory instead of `~/.claude` when searching for the launcher.
 
@@ -53,7 +53,7 @@ Based on `$ARGUMENTS`:
 | `save [slot]`            | Call `buddy_save` with optional slot name                                                    |
 | `list`                   | Call `buddy_list`                                                                            |
 | `dismiss <slot>`         | Call `buddy_dismiss` with the slot name                                                      |
-| `pick`                   | Tell user to run `! bun run pick` from the claude-buddy directory (launches interactive TUI) |
+| `pick`                   | Tell user to run `! bun run pick` from the coding-buddy directory (launches interactive TUI) |
 | `frequency`              | Call `buddy_frequency` with no args (show current)                                           |
 | `frequency <seconds>`    | Call `buddy_frequency` with cooldown=seconds                                                 |
 | `style`                  | Call `buddy_style` with no args (show current)                                               |
@@ -74,7 +74,11 @@ Based on `$ARGUMENTS`:
 
 ## CRITICAL OUTPUT RULES
 
-The MCP tools return pre-formatted ASCII art with ANSI colors, box-drawing characters, stat bars, and species art. This is the companion's visual identity.
+Different buddy tools return different shapes of output. The rules below keep the companion's visual identity intact while making sure plain-text replies actually reach the user.
+
+### Visual-card outputs — strict verbatim
+
+These tools return pre-formatted ASCII art with ANSI colors, box-drawing characters, stat bars, and species art: `buddy_show`, `buddy_stats`, `buddy_pet`, `buddy_achievements`, `buddy_summon`, `buddy_pick`. This is the companion's visual identity.
 
 **You MUST output the tool result text EXACTLY as returned — character for character, line for line.** Do NOT:
 
@@ -86,16 +90,30 @@ The MCP tools return pre-formatted ASCII art with ANSI colors, box-drawing chara
 
 **Just output the raw text content from the tool result. Nothing else.** The ASCII art IS the response.
 
-If the user mentions the buddy's name in normal conversation, call `buddy_react` with reason "turn" and display the result verbatim.
+### Plain-text outputs — verbatim and visible
+
+These tools return plain text, not ASCII art: `buddy_help`, `buddy_mute`, `buddy_unmute`, `buddy_frequency`, `buddy_style`, `buddy_statusline`, `buddy_list`, `buddy_rename`, `buddy_save`, `buddy_dismiss`, `buddy_set_personality`.
+
+**The visible reply MUST include the tool result text verbatim — every time, on every call, even on repeated calls in the same session.** Treat each invocation as a fresh request from the user, not a "they have seen it before" signal. Tool results are not rendered in the user's transcript; only what you write in your own reply reaches the screen.
+
+You MAY add a one-sentence confirmation before or after if it clarifies what changed, but do NOT paraphrase the text itself.
+
+**Hard floor for the plain-text commands above:** a reply that contains no visible text of its own is broken. A `buddy_react` call is not visible output — it reaches the user only through the statusline bubble — so a turn whose only content is a tool call renders blank. If you have nothing else to say, the tool result text alone is the correct reply.
+
+**Self-check for the plain-text commands above:** does your visible reply contain that command's result text? If not, paste it in. Never paste the result of `buddy_react`. The end-of-turn `buddy_react` call is _additional_, never _instead of_.
+
+### Reactions — statusline only
+
+If the user mentions the buddy's name in normal conversation, call `buddy_react` with reason "turn". Do NOT echo or quote the tool result — the reaction reaches the user only via the statusline speech bubble.
 
 ## Uninstall Orchestration
 
 When the user invokes `/buddy uninstall`, run this sequence **in order** — do not skip steps, do not ask for confirmation between steps:
 
 1. Call the MCP tool `buddy_uninstall`. Display its output verbatim.
-2. Run via Bash tool: `claude plugin uninstall claude-buddy@claude-buddy`
-3. Run via Bash tool: `claude plugin marketplace remove claude-buddy`
-4. Run via Bash tool: `rm -rf ~/.claude/plugins/cache/claude-buddy`
+2. Run via Bash tool: `claude plugin uninstall coding-buddy@coding-buddy`
+3. Run via Bash tool: `claude plugin marketplace remove coding-buddy`
+4. Run via Bash tool: `rm -rf ~/.claude/plugins/cache/coding-buddy`
 5. Tell the user: uninstall is complete; companion data is kept at `~/.claude-buddy/`; restart Claude Code to release the plugin.
 
 If any Bash step fails (non-zero exit), report the error but continue with the remaining steps — each step is independent and always-safe to run.
