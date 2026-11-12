@@ -25,10 +25,25 @@ ENV DEBIAN_FRONTEND=noninteractive \
 # Pin exact Ubuntu 24.04 (noble) package versions so runner image drift does
 # not silently re-rasterize glyphs. Bump deliberately when re-baselining.
 #
+# The versions are resolved from snapshot.ubuntu.com at UBUNTU_SNAPSHOT, not
+# from the live archive: Ubuntu deletes superseded -updates and -security
+# builds, so exact pins against the live archive stop installing within weeks
+# (issue #192). When re-baselining, move the snapshot date and the pins
+# together.
+#
 # Includes Chromium shared libs for vhs/rod headless browser, plus the fonts
 # used by the tapes (DejaVu mono + Noto CJK/emoji).
+#
+# The snapshot server is HTTPS-only and the base image ships no CA bundle, so
+# ca-certificates is first installed from the live archive for transport. The
+# pinned install below then replaces it with the snapshot's version, which is
+# why --allow-downgrades is set. Package contents are still verified by apt's
+# archive signatures, not by TLS.
+ARG UBUNTU_SNAPSHOT=20260726T120000Z
 RUN apt-get update -qq \
- && apt-get install -y -qq --no-install-recommends \
+ && apt-get install -y -qq --no-install-recommends ca-certificates \
+ && apt-get update -qq --snapshot "${UBUNTU_SNAPSHOT}" \
+ && apt-get install -y -qq --no-install-recommends --allow-downgrades --snapshot "${UBUNTU_SNAPSHOT}" \
       ca-certificates=20260601~24.04.1 \
       curl=8.5.0-2ubuntu10.11 \
       xz-utils=5.6.1+really5.4.5-1ubuntu0.3 \
