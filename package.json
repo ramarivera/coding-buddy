@@ -1,6 +1,6 @@
 {
   "name": "@ramarivera/coding-buddy",
-  "version": "0.9.4",
+  "version": "0.9.5",
   "description": "Persistent coding companion for Claude Code, Pi, and Oh My Pi",
   "type": "module",
   "omp": {
@@ -38,6 +38,8 @@
     "gen:emoji-widths": "bun run scripts/gen-emoji-widths.ts",
     "sync-version": "bun run scripts/sync-version.ts",
     "version": "bun run sync-version && git add .claude-plugin",
+    "prepack": "node -e \"require('fs').copyFileSync('bun.lock','runtime.bun.lock')\"",
+    "postpack": "node -e \"require('fs').rmSync('runtime.bun.lock',{force:true})\"",
     "ci:statusline": "bash scripts/ci/check-statusline.sh",
     "ci:vhs:render": "bash scripts/ci/render-vhs-goldens.sh",
     "ci:vhs:update": "bash scripts/ci/render-vhs-goldens.sh --update",
@@ -53,6 +55,7 @@
     "statusline/",
     "scripts/",
     ".claude-plugin/",
+    "runtime.bun.lock",
     "!**/*.test.ts"
   ],
   "keywords": [
