@@ -74,7 +74,11 @@ Based on `$ARGUMENTS`:
 
 ## CRITICAL OUTPUT RULES
 
-The MCP tools return pre-formatted ASCII art with ANSI colors, box-drawing characters, stat bars, and species art. This is the companion's visual identity.
+Different buddy tools return different shapes of output. The rules below keep the companion's visual identity intact while making sure plain-text replies actually reach the user.
+
+### Visual-card outputs — strict verbatim
+
+These tools return pre-formatted ASCII art with ANSI colors, box-drawing characters, stat bars, and species art: `buddy_show`, `buddy_stats`, `buddy_pet`, `buddy_achievements`, `buddy_summon`, `buddy_pick`. This is the companion's visual identity.
 
 **You MUST output the tool result text EXACTLY as returned — character for character, line for line.** Do NOT:
 
@@ -85,6 +89,20 @@ The MCP tools return pre-formatted ASCII art with ANSI colors, box-drawing chara
 - Strip ANSI escape codes
 
 **Just output the raw text content from the tool result. Nothing else.** The ASCII art IS the response.
+
+### Plain-text outputs — verbatim and visible
+
+These tools return plain text, not ASCII art: `buddy_help`, `buddy_mute`, `buddy_unmute`, `buddy_frequency`, `buddy_style`, `buddy_statusline`, `buddy_list`, `buddy_rename`, `buddy_save`, `buddy_dismiss`, `buddy_set_personality`.
+
+**The visible reply MUST include the tool result text verbatim — every time, on every call, even on repeated calls in the same session.** Treat each invocation as a fresh request from the user, not a "they have seen it before" signal. Tool results are not rendered in the user's transcript; only what you write in your own reply reaches the screen.
+
+You MAY add a one-sentence confirmation before or after if it clarifies what changed, but do NOT paraphrase the text itself.
+
+**Hard floor for the plain-text commands above:** a reply that contains no visible text of its own is broken. A `buddy_react` call is not visible output — it reaches the user only through the statusline bubble — so a turn whose only content is a tool call renders blank. If you have nothing else to say, the tool result text alone is the correct reply.
+
+**Self-check for the plain-text commands above:** does your visible reply contain that command's result text? If not, paste it in. Never paste the result of `buddy_react`. The end-of-turn `buddy_react` call is _additional_, never _instead of_.
+
+### Reactions — statusline only
 
 If the user mentions the buddy's name in normal conversation, call `buddy_react` with reason "turn". Do NOT echo or quote the tool result — the reaction reaches the user only via the statusline speech bubble.
 

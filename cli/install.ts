@@ -7,7 +7,7 @@
  * ~/.claude/ layout when the env var is unset.
  */
 
-import { readFileSync, writeFileSync, mkdirSync, existsSync, cpSync } from "fs";
+import { readFileSync, writeFileSync, mkdirSync, existsSync, cpSync, rmSync } from "fs";
 import { execFileSync, execSync } from "child_process";
 import { resolve, dirname, join } from "path";
 
@@ -22,7 +22,12 @@ import {
 } from "../server/path.ts";
 import { loadCompanion, saveCompanion, resolveUserId, writeStatusState } from "../server/state.ts";
 import { generateFallbackName } from "../core/reactions.ts"
-import { copyRuntimeApp, stableRuntimePaths } from "./runtime-app.ts";
+import {
+  installRuntimeAppAtomically,
+  redactSecrets,
+  stableRuntimePaths,
+  supportsTextLockfile,
+} from "./runtime-app.ts";
 
 /** Recognise any buddy-owned hook command, however it is pathed. */
 function isBuddyHookCommand(command: unknown): boolean {
@@ -261,10 +266,31 @@ function installHooks(settings: Record<string, any>, appDir: string) {
 }
 
 function installRuntimeApp(): string {
-  const appDir = copyRuntimeApp(PROJECT_ROOT, buddyStateDir());
-  const installArgs = ["install", "--production", "--ignore-scripts"];
-  if (existsSync(join(appDir, "bun.lock"))) installArgs.push("--frozen-lockfile");
-  execFileSync("bun", installArgs, { cwd: appDir, stdio: "ignore" });
+  const appDir = installRuntimeAppAtomically(PROJECT_ROOT, buddyStateDir(), (stagingDir) => {
+    const installArgs = ["install", "--production", "--ignore-scripts"];
+    const lockfile = join(stagingDir, "bun.lock");
+    if (existsSync(lockfile)) {
+      const bunVersion = execFileSync("bun", ["--version"], { encoding: "utf8" }).trim();
+      if (supportsTextLockfile(bunVersion)) {
+        installArgs.push("--frozen-lockfile");
+      } else {
+        rmSync(lockfile, { force: true });
+        warn(`Bun ${bunVersion} cannot read bun.lock (needs 1.2 or newer); installing dependencies unpinned. Upgrade Bun for a reproducible install.`);
+      }
+    }
+    try {
+      execFileSync("bun", installArgs, { cwd: stagingDir, stdio: ["ignore", "pipe", "pipe"], encoding: "utf8" });
+    } catch (error) {
+      // Show bun's own output: without it a dependency failure reads as a bare
+      // "Command failed" and the user cannot tell what broke. The original
+      // error is not attached as `cause` because it carries the raw output.
+      const failure = error as { stdout?: string; stderr?: string };
+      const output = redactSecrets([failure.stdout, failure.stderr].filter(Boolean).join("\n").trim());
+      throw new Error(
+        `bun ${installArgs.join(" ")} failed${output ? `:\n${output}` : ""}\nThe previous runtime app, if any, was left in place.`,
+      );
+    }
+  });
   ok(`Stable runtime installed: ${appDir}`);
   return appDir;
 }

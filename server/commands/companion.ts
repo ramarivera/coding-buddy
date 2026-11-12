@@ -7,6 +7,7 @@ import { incrementEvent, checkAndAward } from "../achievements";
 import { awardXp } from "../xp";
 import { ensureCompanion, activeSlot } from "./session.ts";
 import { defineCommand } from "./definition.ts";
+import { REACT_REASONS, normalizeReactArgs } from "../react-args.ts";
 
 function describeReactionSource(
   reaction: { source?: ReactionSource },
@@ -116,33 +117,33 @@ export const buddy_react = defineCommand(
   {
     comment: z
       .string()
-      .min(1)
-      .max(150)
-      .describe(
-        "The buddy's comment, written in-character (1 short sentence, max 150 chars). Use *asterisks* for actions.",
-      ),
-    reason: z
-      .enum([
-        "error", "test-fail", "large-diff", "turn",
-        "commit", "push", "merge-conflict", "branch", "rebase", "stash", "tag",
-        "late-night", "early-morning", "long-session", "marathon", "friday", "weekend", "monday",
-        "regex-file", "css-file", "sql-file", "docker-file", "ci-file", "lock-file",
-        "env-file", "test-file", "doc-file", "config-file", "binary-file", "gitignore",
-        "makefile", "readme", "package-file", "proto-file",
-        "lint-fail", "type-error", "build-fail", "security-warning", "deprecation",
-        "frustrated", "happy", "stuck", "sarcastic",
-        "many-edits", "delete-file", "large-file", "create-file",
-        "all-green", "deploy", "release", "coverage",
-        "debug-loop", "write-spree", "search-heavy",
-        "recovery-from-error", "recovery-from-test-fail",
-        "recovery-from-build-fail", "recovery-from-merge-conflict",
-      ])
       .optional()
-      .describe("What triggered the reaction"),
+      .describe(
+        "The buddy's comment, written in-character (1 short sentence, max 150 chars; longer text is shortened). Use *asterisks* for actions. Always send it: a call with no comment returns an error.",
+      ),
+    reaction: z
+      .string()
+      .optional()
+      .describe("Deprecated alias for `comment`. Send `comment` instead."),
+    reason: z
+      .string()
+      .optional()
+      .describe(
+        `What triggered the reaction. One of: ${REACT_REASONS.join(", ")}. Defaults to "turn"; unknown values are treated as "turn".`,
+      ),
   },
-  async ({ comment, reason }) => {
+  async (raw) => {
+    const { comment, reason } = normalizeReactArgs(raw);
+    if (comment === null) {
+      return {
+        isError: true,
+        content: [
+          { type: "text", text: 'buddy_react needs a non-empty `comment` string, for example {"comment": "*nods* clean diff", "reason": "turn"}.' },
+        ],
+      };
+    }
     const companion = ensureCompanion();
-    saveReaction(comment, reason ?? "turn", "tool");
+    saveReaction(comment, reason, "tool");
     incrementEvent("reactions_given", 1, activeSlot());
 
     const newAch = checkAndAward(activeSlot());
@@ -253,15 +254,16 @@ export const buddy_help = defineCommand(
       "  /buddy statusline Enable or disable buddy in the status line",
       "  /buddy theme     Set color theme: dark (bright) or light (dark colors)",
       "",
-      "CLI:",
-      "  bun run help            Show full CLI help",
-      "  bun run show            Display buddy in terminal",
-      "  bun run pick            Interactive buddy picker",
-      "  bun run hunt            Search for specific buddy",
-      "  bun run doctor          Diagnostic report",
-      "  bun run disable         Temporarily deactivate buddy",
-      "  bun run enable          Re-enable buddy",
-      "  bun run backup          Snapshot/restore state",
+      "CLI (run from any directory):",
+      "  npx -y @ramarivera/coding-buddy help      Show full CLI help",
+      "  npx -y @ramarivera/coding-buddy show      Display buddy in terminal",
+      "  npx -y @ramarivera/coding-buddy pick      Interactive buddy picker",
+      "  npx -y @ramarivera/coding-buddy hunt      Search for specific buddy",
+      "  npx -y @ramarivera/coding-buddy doctor    Diagnostic report",
+      "  npx -y @ramarivera/coding-buddy disable   Temporarily deactivate buddy",
+      "  npx -y @ramarivera/coding-buddy enable    Re-enable buddy",
+      "  npx -y @ramarivera/coding-buddy backup    Snapshot/restore state",
+      "  In a coding-buddy clone, `bun run <command>` does the same.",
     ].join("\n");
 
     incrementEvent("commands_run", 1, activeSlot());
