@@ -5,7 +5,7 @@
  * resolves its paths lazily (see the regression guard note below).
  */
 import { afterEach, describe, test, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "fs";
+import { mkdtempSync, readFileSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import type { Companion } from "../core/engine.ts";
@@ -77,6 +77,40 @@ describe("F3: saveReaction / writeStatusState reaction-provenance contract", () 
     const after = loadReaction();
     expect(after?.source).toBe("tool");
     expect(after?.reaction).toBe("*tool wrote this*");
+  });
+
+  test("writeStatusState keeps the mute state unless told to change it", async () => {
+    const stateDir = makeTempStateDir();
+    stateDirs.push(stateDir);
+    process.env.CLAUDE_CONFIG_DIR = stateDir;
+    const { writeStatusState } = await import("./state.ts");
+    const companion: Companion = {
+      bones: {
+        rarity: "common",
+        species: "duck",
+        eye: "°",
+        hat: "none",
+        shiny: false,
+        stats: { DEBUGGING: 50, PATIENCE: 50, CHAOS: 50, WISDOM: 50, SNARK: 50 },
+        peak: "SNARK",
+        dump: "PATIENCE",
+      },
+      name: "Daffodil",
+      personality: "dry wit",
+      hatchedAt: 1,
+      userId: "u",
+    };
+    const muted = () =>
+      JSON.parse(readFileSync(join(stateDir, "buddy-state", "status.json"), "utf8")).muted;
+
+    writeStatusState(companion);
+    expect(muted()).toBe(false);
+    writeStatusState(companion, "", true);
+    expect(muted()).toBe(true);
+    writeStatusState(companion, "*pet*");
+    expect(muted()).toBe(true);
+    writeStatusState(companion, "*back*", false);
+    expect(muted()).toBe(false);
   });
 });
 
