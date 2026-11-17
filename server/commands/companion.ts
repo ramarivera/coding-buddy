@@ -114,7 +114,7 @@ export const buddy_stats = defineCommand(
 );
 
 export const buddy_react = defineCommand(
-  "Post a buddy comment that the user will see ONLY in the statusline speech bubble. Call this at the END of every response with a short in-character comment from the companion about what just happened. The comment should be 1 sentence, in character, and reference something specific from the conversation — a pitfall noticed, a compliment on clean code, a warning about edge cases, etc. Write the comment yourself based on the companion's personality. The tool call is a silent side effect: do not narrate, echo, or quote the result — the user never reads this reply text, the speech bubble is the only place the reaction appears.",
+  "Post a buddy comment that the user will see ONLY in the statusline speech bubble. Call this in every response right BEFORE your final reply text (never as the last action — a turn ending on a tool call makes Claude Code re-ask for output and the answer gets duplicated) with a short in-character comment from the companion about what just happened. The comment should be 1 sentence, in character, and reference something specific from the conversation — a pitfall noticed, a compliment on clean code, a warning about edge cases, etc. Write the comment yourself based on the companion's personality. The tool call is a silent side effect: do not narrate, echo, or quote the result — the user never reads this reply text, the speech bubble is the only place the reaction appears.",
   {
     comment: z
       .string()

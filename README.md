@@ -247,7 +247,7 @@ Five integration points, zero binary dependencies. When Claude Code, Pi, or Oh M
              └─────────────────────┘
 ```
 
-- **MCP Server** — companion tools + system prompt that tells Claude to call `buddy_react` at the end of every turn. The tool call writes the reaction with `source: "tool"` — model-authored, renders nowhere in the transcript.
+- **MCP Server** — companion tools + system prompt that tells Claude to call `buddy_react` right before the final reply text of every turn (a turn that ends on a tool call makes Claude Code ask for more output, and the answer gets repeated). The tool call writes the reaction with `source: "tool"` — model-authored, renders nowhere in the transcript.
 - **Skill** — routes `/buddy`, `/buddy pet`, `/buddy stats`, `/buddy off`, `/buddy rename`
 - **Status Line** — animated ASCII art, right-aligned, with rarity color and speech bubble
 - **PostToolUse Hook** — detects errors, test failures, large diffs in Bash output
