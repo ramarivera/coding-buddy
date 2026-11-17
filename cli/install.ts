@@ -22,6 +22,7 @@ import {
 } from "../server/path.ts";
 import { loadCompanion, saveCompanion, resolveUserId, writeStatusState } from "../server/state.ts";
 import { generateFallbackName } from "../core/reactions.ts"
+import { addBuddyPermission, BUDDY_PERMISSION } from "./permissions.ts";
 import {
   installRuntimeAppAtomically,
   redactSecrets,
@@ -301,15 +302,8 @@ function ensurePermissions(settings: Record<string, any>) {
   if (!settings.permissions) settings.permissions = {};
   if (!settings.permissions.allow) settings.permissions.allow = [];
 
-  const allow: string[] = settings.permissions.allow;
-  // Tools are named after the MCP server key ("claude-buddy"), and permission
-  // rules match it literally — "mcp__claude_buddy__*" never matched anything.
-  // Earlier installs wrote that broken rule, so drop it.
-  const legacy = allow.indexOf("mcp__claude_buddy__*");
-  if (legacy !== -1) allow.splice(legacy, 1);
-  if (!allow.includes("mcp__*") && !allow.some((p: string) => p.startsWith("mcp__claude-buddy"))) {
-    allow.push("mcp__claude-buddy__*");
-    ok("Permission added: mcp__claude-buddy__*");
+  if (addBuddyPermission(settings.permissions.allow)) {
+    ok(`Permission added: ${BUDDY_PERMISSION}`);
   } else {
     ok("MCP permissions already configured");
   }
