@@ -22,6 +22,7 @@ import {
 } from "../server/path.ts";
 import { loadCompanion, saveCompanion, resolveUserId, writeStatusState } from "../server/state.ts";
 import { generateFallbackName } from "../core/reactions.ts"
+import { addBuddyPermission, BUDDY_PERMISSION } from "./permissions.ts";
 import {
   installRuntimeAppAtomically,
   redactSecrets,
@@ -301,10 +302,8 @@ function ensurePermissions(settings: Record<string, any>) {
   if (!settings.permissions) settings.permissions = {};
   if (!settings.permissions.allow) settings.permissions.allow = [];
 
-  const allow: string[] = settings.permissions.allow;
-  if (!allow.includes("mcp__*") && !allow.some((p: string) => p.startsWith("mcp__claude_buddy"))) {
-    allow.push("mcp__claude_buddy__*");
-    ok("Permission added: mcp__claude_buddy__*");
+  if (addBuddyPermission(settings.permissions.allow)) {
+    ok(`Permission added: ${BUDDY_PERMISSION}`);
   } else {
     ok("MCP permissions already configured");
   }
