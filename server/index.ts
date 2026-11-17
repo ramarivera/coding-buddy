@@ -353,7 +353,7 @@ server.resource(
       "- 1 short sentence. Use *asterisks* for physical actions",
       `- Match personality: high ${companion.bones.peak} = lean into that trait`,
       "- Call it and say nothing about it.",
-      "- NEVER skip this. Every single response must end with one buddy_react call.",
+      "- NEVER skip this. Every single response must include one buddy_react call, placed before the final reply text.",
       "Examples (the value you pass to `comment`):",
 
       "- `*adjusts tophat* that error handler is missing a finally block`",

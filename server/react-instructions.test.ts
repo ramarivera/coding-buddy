@@ -9,7 +9,7 @@ import { buddy_react } from "./commands/companion.ts";
 // place that tells the model when to call buddy_react must therefore put the
 // call before the final reply text, never after it.
 const serverSource = readFileSync(join(import.meta.dir, "index.ts"), "utf8");
-const endOfTurnPhrase = /(at the (very )?end of every|after your full answer)/i;
+const endOfTurnPhrase = /(at the (very )?end of every|after your full answer|must end with)/i;
 
 describe("buddy_react timing instructions", () => {
   test("tool description asks for the call before the final reply text", () => {
